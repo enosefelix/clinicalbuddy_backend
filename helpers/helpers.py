@@ -166,7 +166,6 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
         return {"error": str(e)}
 
 
-
 def conversation_chain(
     user_question,
     chat_history,
@@ -226,7 +225,7 @@ def conversation_chain(
                 ),
             ]
         )
-      
+
         system_prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -271,6 +270,8 @@ def conversation_chain(
 
         pdfs_and_pages = list(pdf_dict.values())
         answer = response["answer"]
+
+        # print(answer)
 
         if answer != "":
             chat_history.append(HumanMessage(content=user_question))
