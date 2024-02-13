@@ -1,0 +1,37 @@
+[tool.poetry]
+name = "clinicalbuddy"
+version = "0.1.0"
+description = ""
+authors = ["yahayakenny <y.hkehinde@yahoo.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+langchain = "^0.1.6"
+langchain-openai = ">=0.0.5,<0.1.0"  
+tiktoken = ">=0.5.2,<0.6.0"  
+qdrant-client = "^1.7.3"
+python-dotenv = "^1.0.1"
+flask = "^3.0.2"
+jsonify = "^0.5"
+flask-cors = "^4.0.0"
+google-cloud-storage = "^2.14.0"
+google-cloud-firestore = "^2.14.0"
+bcrypt = "^4.1.2"
+flask-jwt-extended = "^4.6.0"
+gunicorn = "^21.2.0"
+requests = "^2.31.0"
+six = "^1.16.0"
+pypdf = "^4.0.1"
+cryptography = "^42.0.2"
+pyasn1 = "^0.5.1"
+
+boto3 = "^1.34.40"
+urllib3 = ">=1.25.4,<2.1"
+flask-bcrypt = "^1.0.1"
+
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
