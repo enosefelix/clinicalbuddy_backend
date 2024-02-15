@@ -14,21 +14,21 @@ from qdrant.qdrant import (
 from firestore.firestore import fetch_missing_pdfs_from_firestore
 from helpers.constants import UserClusters
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import AIMessage, HumanMessage
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.memory import ChatMessageHistory
 
 
 load_dotenv()
+chat_history = ChatMessageHistory()
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
 AWS_S3_BUCKET_NAME = os.getenv("AWS_S3_BUCKET_NAME")
 AWS_REGION = os.getenv("AWS_REGION")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-chat_history = []
 
 s3_client = boto3.client(
     service_name="s3",
@@ -43,7 +43,7 @@ def get_pdf_data(pdf_docs):
 
     for pdf in pdf_docs:
         pdf_reader = PdfReader(pdf)
-        pdf_name = pdf.filename  # Get the name of the PDF file
+        pdf_name = pdf.filename
         for page_num in range(len(pdf_reader.pages)):
             page = pdf_reader.pages[page_num]
             page_text = page.extract_text()
@@ -168,7 +168,6 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
 
 def conversation_chain(
     user_question,
-    chat_history,
     selected_pdf,
     qdrant_vector_embedding,
     cluster,
@@ -190,7 +189,9 @@ def conversation_chain(
                     search_kwargs={
                         "filter": {
                             "source": selected_pdf,
-                        }
+
+                        },
+                        "k":10
                     }
                 )
             else:
@@ -203,7 +204,8 @@ def conversation_chain(
                         "filter": {
                             "source": selected_pdf,
                             "group_id": cluster,
-                        }
+                        },
+                         "k":10
                     }
                 )
             else:
@@ -211,7 +213,8 @@ def conversation_chain(
                     search_kwargs={
                         "filter": {
                             "group_id": cluster,
-                        }
+                        },
+                         "k":10
                     }
                 )
 
@@ -241,7 +244,12 @@ def conversation_chain(
         )
         stuff_documents_chain = create_stuff_documents_chain(llm, system_prompt)
         chain = create_retrieval_chain(retriever_chain, stuff_documents_chain)
-        response = chain.invoke({"chat_history": chat_history, "input": user_question})
+        response = chain.invoke(
+            {
+                "chat_history": chat_history.messages,
+                "input": user_question,
+            }
+        )
         page_nums = [doc.metadata.get("page_num") for doc in response["context"]]
         pdf_names = [doc.metadata.get("source") for doc in response["context"]]
 
@@ -271,11 +279,9 @@ def conversation_chain(
         pdfs_and_pages = list(pdf_dict.values())
         answer = response["answer"]
 
-        # print(answer)
-
         if answer != "":
-            chat_history.append(HumanMessage(content=user_question))
-            # chat_history.append(AIMessage(content=answer))
+            chat_history.add_user_message(user_question)
+            chat_history.add_ai_message(answer)
 
         if conversation_chain is not None:
             return jsonify(

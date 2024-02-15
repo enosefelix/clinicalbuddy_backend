@@ -70,13 +70,11 @@ def get_conversation_chain():
     data = request.get_json()
     user_question = data.get("question")
     selected_pdf = data.get("selected_pdf")
-    chat_history = data.get("chat_history", [])
     cluster = data.get("cluster")
     user_name = get_jwt_identity()
 
     return conversation_chain(
         user_question,
-        chat_history,
         selected_pdf,
         qdrant_vector_embedding,
         cluster,

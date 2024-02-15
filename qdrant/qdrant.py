@@ -1,11 +1,7 @@
 import os
 import qdrant_client
-# from langchain.embeddings import OpenAIEmbeddings
-# from langchain.vectorstores import Qdrant
-from langchain_community.vectorstores import  Qdrant
+from langchain_community.vectorstores import Qdrant
 from langchain_openai import OpenAIEmbeddings
-
-
 from qdrant_client.http import models
 from dotenv import load_dotenv
 
