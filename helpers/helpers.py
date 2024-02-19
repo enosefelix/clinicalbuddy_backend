@@ -189,9 +189,8 @@ def conversation_chain(
                     search_kwargs={
                         "filter": {
                             "source": selected_pdf,
-
                         },
-                        "k":10
+                        "k": 10,
                     }
                 )
             else:
@@ -205,7 +204,7 @@ def conversation_chain(
                             "source": selected_pdf,
                             "group_id": cluster,
                         },
-                         "k":10
+                        "k": 10,
                     }
                 )
             else:
@@ -214,7 +213,7 @@ def conversation_chain(
                         "filter": {
                             "group_id": cluster,
                         },
-                         "k":10
+                        "k": 10,
                     }
                 )
 
@@ -233,12 +232,13 @@ def conversation_chain(
             [
                 (
                     "system",
-                    "You are a helpful chatbot that responds in Markdown. I want you to act as an AI-assisted medical doctor that answers user's questions based on the context below. Always speak in present simple tense. I will provide you with a variety of questions, sometimes including patient symptoms, investigation results, and ask you to interprete or generate a management plan. Use the following pieces of context to answer the questions, providing very extensive responses. Use your skills to determine what kind of context is provided and tailor your response accordingly. You should also incorporate traditional methods such as clinical history, physical examination, laboratory investigations, etc., into the evaluation process to ensure accuracy and fact check responses based on the context. Always list answers where appropriate for better readability. If the user's question is ambiguous or has more than one interpretation, ask for more information to clarify. importantly, If the answer is not within the provided context say 'I don't know' and Always ensure do not come up with an answer or say anything more than those three words.:\n\n{context}",
+                    "You are a helpful chatbot that responds in Markdown. I want you to act as an AI-assisted medical doctor that answers user's questions based on the context below providing very extensive responses.  Reemeber  to always list answers where appropriate for better readability and speak in present simple tense. It is very important to make sure that before providing a response, you always go through the following steps: 1. Think about what facts you need to look for in the context to answer the question? 2. Look for the details of the question in the context. 3. Does the context contain all the facts needed to answer the question? 4. Think about how you might answer the question given what you know. If you don’t have enough facts, answer with 'I don't know'  and do not try to come up with an answer. 5. Answer the question. 6.  State each step and show your work \n\n {context}",
                 ),
                 MessagesPlaceholder(variable_name="chat_history"),
                 ("user", "{input}"),
             ]
         )
+
         retriever_chain = create_history_aware_retriever(
             llm, retriever_filter, user_prompt
         )
