@@ -371,6 +371,7 @@ def login():
                         "cluster": user_obj.get("cluster"),
                         "role": user_obj.get("role"),
                         "user_name": user_obj.get("user_name"),
+                        "name": user_obj.get("name"),
                         "accept_disclaimer": user_obj.get("accept_disclaimer"),
                     }
                 },
