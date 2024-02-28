@@ -3,12 +3,13 @@ import io
 import requests
 import hashlib
 from helpers.constants import FRONT_END_URL
+from werkzeug.utils import secure_filename
+
 from helpers.helpers import conversation_chain
 from datetime import timedelta
 from flask import Flask, jsonify, request, send_file, make_response
-
+from openai import OpenAI, BadRequestError
 from dotenv import load_dotenv
-
 from flask_cors import CORS, cross_origin
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import (
@@ -31,6 +32,7 @@ CORS(app, resources={r"/api/*": {"origins": FRONT_END_URL}})
 
 
 bcrypt = Bcrypt()
+openAIClient = OpenAI()
 secret_key = os.environ.get("JWT_SECRET_KEY")
 app.config["JWT_SECRET_KEY"] = secret_key
 jwt = JWTManager(app)
@@ -60,6 +62,61 @@ from firestore.firestore import (
 )
 
 from helpers.helpers import upload_pdf_to_qdrant, upload_pdf_to_s3bucket_and_get_info
+
+
+system_prompt = "You are a helpful assistant for an AI assisted chat bot that helps users search through clinical and medical guidelines"
+
+
+def transcribe_audio(file_bytes, file_type, content_type):
+    file_buffer = io.BytesIO(file_bytes)
+    file_info = ("temp." + file_type, file_buffer, content_type)
+    transcript = openAIClient.audio.transcriptions.create(
+        model="whisper-1",
+        file=file_info,
+        response_format="text",
+    )
+
+    return transcript
+
+    # corrected_transcript = openAIClient.chat.completions.create(
+    #     model="gpt-3.5-turbo-0125",
+    #     temperature=0,
+    #     messages=[
+    #         {"role": "system", "content": system_prompt},
+    #         {"role": "user", "content": transcript},
+    #     ],
+    # )
+
+    # return corrected_transcript.choices[0].message.content
+
+
+# @jwt_required()
+@app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
+@cross_origin(
+    origin=FRONT_END_URL,
+)
+def upload_audio():
+    if "audio" not in request.files:
+        return jsonify({"error": "No file part"}), 400
+
+    audio_file = request.files["audio"]
+
+    if audio_file.filename == "":
+        return jsonify({"error": "No selected file"}), 400
+
+    if audio_file:
+        filename = secure_filename(audio_file.filename)
+        audio_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        audio_file.save(audio_path)
+        with open(audio_path, "rb") as file:
+            file_bytes = file.read()
+
+        file_type = "mp3"
+        content_type = "audio/mp3"
+        transcription = transcribe_audio(file_bytes, file_type, content_type)
+        os.remove(audio_path)
+
+        return jsonify({"transcription": transcription}), 200
 
 
 @jwt_required()
@@ -437,4 +494,6 @@ def delete_user():
 
 
 if __name__ == "__main__":
+    app.config["UPLOAD_FOLDER"] = "uploads"
+    # os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
     app.run(debug=True)
