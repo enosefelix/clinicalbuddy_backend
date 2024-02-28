@@ -90,11 +90,9 @@ def transcribe_audio(file_bytes, file_type, content_type):
     # return corrected_transcript.choices[0].message.content
 
 
-# @jwt_required()
+@jwt_required()
 @app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
-@cross_origin(
-    origin=FRONT_END_URL,headers=["Content-Type", "Authorization"]
-)
+@cross_origin(origin=FRONT_END_URL, headers=["Content-Type", "Authorization"])
 def upload_audio():
     if "audio" not in request.files:
         return jsonify({"error": "No file part"}), 400
