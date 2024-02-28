@@ -93,7 +93,7 @@ def transcribe_audio(file_bytes, file_type, content_type):
 # @jwt_required()
 @app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
 @cross_origin(
-    origin=FRONT_END_URL,
+    origin=FRONT_END_URL,headers=["Content-Type", "Authorization"]
 )
 def upload_audio():
     if "audio" not in request.files:
