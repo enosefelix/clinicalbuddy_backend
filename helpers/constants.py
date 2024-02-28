@@ -1,7 +1,8 @@
 from enum import Enum
 
 
-FRONT_END_URL = "http://localhost:3000"
+LOCAL_FRONT_END_URL = "http://localhost:3000"
+PRODUCTION_FRONT_END_URL = "https://clinicalbuddy.co.uk/"
 
 
 class UserRoles(Enum):
