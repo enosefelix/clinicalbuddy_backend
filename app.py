@@ -31,7 +31,7 @@ FRONT_END_URLS = [LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL]
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": FRONT_END_URLS}})
-app.config['CORS_HEADERS'] = 'Content-Type, Authorization'
+app.config["CORS_HEADERS"] = "Content-Type, Authorization"
 logging.basicConfig(filename="clinicalbuddy.log", level=logging.DEBUG)
 
 
@@ -94,33 +94,51 @@ def transcribe_audio(file_bytes, file_type, content_type):
     # return corrected_transcript.choices[0].message.content
 
 
+# @app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
+# @cross_origin(origins=FRONT_END_URLS)
+# def upload_audio():
+#     # Define the path to the audio file
+#     audio_path = "./uploads/test.mp3"  # Update with the correct path
+
+#     # Read the audio file as bytes
+#     with open(audio_path, "rb") as file:
+#         file_bytes = file.read()
+
+#     # Call the transcribe_audio function with the audio file bytes
+#     file_type = "mp3"
+#     content_type = "audio/mp3"
+#     transcription = transcribe_audio(file_bytes, file_type, content_type)
+
+#     # Return the transcription as a JSON response
+#     return jsonify({"transcription": transcription}), 200
+
+
 @app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
 @cross_origin(origins=FRONT_END_URLS)
 def upload_audio():
 
-    # if "audio" not in request.files:
-    #     return jsonify({"error": "No file part"}), 400
+    if "audio" not in request.files:
+        return jsonify({"error": "No file part"}), 400
 
-    # audio_file = request.files["audio"]
+    audio_file = request.files["audio"]
 
-    # if audio_file.filename == "":
-    #     return jsonify({"error": "No selected file"}), 400
+    if audio_file.filename == "":
+        return jsonify({"error": "No selected file"}), 400
 
-    # print("audio file>>>>", audio_file)
+    print("audio file>>>>", audio_file)
 
-    # if audio_file:
-    #     filename = secure_filename(audio_file.filename)
-    #     audio_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    #     audio_file.save(audio_path)
-    #     with open(audio_path, "rb") as file:
-    #         file_bytes = file.read()
+    if audio_file:
+        filename = secure_filename(audio_file.filename)
+        audio_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        audio_file.save(audio_path)
+        with open(audio_path, "rb") as file:
+            file_bytes = file.read()
 
-    #     file_type = "mp3"
-    #     content_type = "audio/mp3"
-    #     transcription = transcribe_audio(file_bytes, file_type, content_type)
-    #     os.remove(audio_path)
+        file_type = "mp3"
+        content_type = "audio/mp3"
+        transcription = transcribe_audio(file_bytes, file_type, content_type)
+        os.remove(audio_path)
 
-    transcription = "hello world"
     return jsonify({"transcription": transcription}), 200
 
 
