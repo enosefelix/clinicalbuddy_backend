@@ -104,7 +104,7 @@ def upload_audio():
         return jsonify({"error": "No selected file"}), 400
     
 
-    print(audio_file)
+    print("audio file>>>>", audio_file)
 
     # if audio_file:
     #     filename = secure_filename(audio_file.filename)
