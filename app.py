@@ -94,13 +94,17 @@ def transcribe_audio(file_bytes, file_type, content_type):
 @app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
 @cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
 def upload_audio():
-    # if "audio" not in request.files:
-    #     return jsonify({"error": "No file part"}), 400
+    
+    if "audio" not in request.files:
+        return jsonify({"error": "No file part"}), 400
 
-    # audio_file = request.files["audio"]
+    audio_file = request.files["audio"]
 
-    # if audio_file.filename == "":
-    #     return jsonify({"error": "No selected file"}), 400
+    if audio_file.filename == "":
+        return jsonify({"error": "No selected file"}), 400
+    
+
+    print(audio_file)
 
     # if audio_file:
     #     filename = secure_filename(audio_file.filename)
