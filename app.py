@@ -1,6 +1,7 @@
 import os
 import io
 import requests
+import logging
 import hashlib
 from helpers.constants import LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL
 from werkzeug.utils import secure_filename
@@ -30,6 +31,8 @@ FRONT_END_URLS = [LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL]
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": FRONT_END_URLS}})
+app.config['CORS_HEADERS'] = 'Content-Type, Authorization'
+logging.basicConfig(filename="clinicalbuddy.log", level=logging.DEBUG)
 
 
 bcrypt = Bcrypt()
@@ -92,9 +95,9 @@ def transcribe_audio(file_bytes, file_type, content_type):
 
 
 @app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def upload_audio():
-    
+
     if "audio" not in request.files:
         return jsonify({"error": "No file part"}), 400
 
@@ -102,7 +105,6 @@ def upload_audio():
 
     if audio_file.filename == "":
         return jsonify({"error": "No selected file"}), 400
-    
 
     print("audio file>>>>", audio_file)
 
@@ -117,15 +119,14 @@ def upload_audio():
     #     content_type = "audio/mp3"
     #     transcription = transcribe_audio(file_bytes, file_type, content_type)
     #     os.remove(audio_path)
-        
-    transcription = "hello world"
 
+    transcription = "hello world"
     return jsonify({"transcription": transcription}), 200
 
 
 @jwt_required()
 @app.route("/api/conversation_chain", methods=["POST", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def get_conversation_chain():
     verify_jwt_in_request()
     data = request.get_json()
@@ -145,7 +146,7 @@ def get_conversation_chain():
 
 @jwt_required()
 @app.route("/api/bookmarks", methods=["GET", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def get_bookmarks():
     verify_jwt_in_request()
     user_name = get_jwt_identity()
@@ -168,7 +169,7 @@ def get_bookmarks():
 
 @jwt_required()
 @app.route("/api/delete_bookmark", methods=["DELETE", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def delete_bookmark():
     verify_jwt_in_request()
     data = request.get_json()
@@ -192,7 +193,7 @@ def delete_bookmark():
 
 @jwt_required()
 @app.route("/api/add_bookmark", methods=["POST", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def add_bookmark():
     verify_jwt_in_request()
     bookmark = request.get_json()
@@ -213,7 +214,7 @@ def add_bookmark():
 
 # Pdfs
 @app.route("/api/get_pdf", methods=["GET", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def get_pdf():
     try:
         # Get the URL parameter from the request
@@ -239,7 +240,7 @@ def get_pdf():
 
 @jwt_required()
 @app.route("/api/missing_pdfs", methods=["GET", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def get_missing_pdfs():
     verify_jwt_in_request()
     cluster = request.args.get("cluster", type=str)
@@ -264,7 +265,7 @@ def get_missing_pdfs():
 
 @jwt_required()
 @app.route("/api/update_multiple_missing_pdfs_category", methods=["PATCH", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def update_multiple_missing_pdfs_category():
     verify_jwt_in_request()
     data = request.get_json()
@@ -285,7 +286,7 @@ def update_multiple_missing_pdfs_category():
 
 @jwt_required()
 @app.route("/api/delete_missing_pdf", methods=["DELETE", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def delete_missing_pdf():
     verify_jwt_in_request()
     data = request.get_json()
@@ -311,7 +312,7 @@ def delete_missing_pdf():
 
 @jwt_required()
 @app.route("/api/upload_pdfs", methods=["POST", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def upload_pdf():
     try:
         verify_jwt_in_request()
@@ -365,7 +366,7 @@ def upload_pdf():
 
 @jwt_required()
 @app.route("/api/delete_multiple_pdfs", methods=["DELETE", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def delete_multiple_pdfs():
     verify_jwt_in_request()
     user_name = get_jwt_identity()
@@ -381,7 +382,7 @@ def delete_multiple_pdfs():
 
 
 @app.route("/api/register", methods=["POST", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def register():
     data = request.get_json()
 
@@ -410,7 +411,7 @@ def register():
 
 
 @app.route("/api/login", methods=["POST", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def login():
     data = request.get_json()
     user_name = data.get("username")
@@ -454,7 +455,7 @@ def login():
 
 @jwt_required()
 @app.route("/api/users", methods=["GET", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def get_users():
     verify_jwt_in_request()
     user_name = get_jwt_identity()
@@ -475,7 +476,7 @@ def get_users():
 
 @jwt_required()
 @app.route("/api/delete_user", methods=["DELETE", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
+@cross_origin(origins=FRONT_END_URLS)
 def delete_user():
     verify_jwt_in_request()
     current_user = get_jwt_identity()
