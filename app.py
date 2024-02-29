@@ -25,7 +25,6 @@ from flask_jwt_extended import (
 # Load environment variables
 load_dotenv()
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
-
 FRONT_END_URLS = [LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL]
 
 
@@ -33,6 +32,9 @@ app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": FRONT_END_URLS}})
 app.config["CORS_HEADERS"] = "Content-Type, Authorization"
 logging.basicConfig(filename="clinicalbuddy.log", level=logging.DEBUG)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 
 bcrypt = Bcrypt()
@@ -114,9 +116,8 @@ def transcribe_audio(file_bytes, file_type, content_type):
 
 
 @app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
-@cross_origin(origins=FRONT_END_URLS)
+@cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
 def upload_audio():
-
     if "audio" not in request.files:
         return jsonify({"error": "No file part"}), 400
 
@@ -124,8 +125,6 @@ def upload_audio():
 
     if audio_file.filename == "":
         return jsonify({"error": "No selected file"}), 400
-
-    print("audio file>>>>", audio_file)
 
     if audio_file:
         filename = secure_filename(audio_file.filename)
@@ -139,7 +138,7 @@ def upload_audio():
         transcription = transcribe_audio(file_bytes, file_type, content_type)
         os.remove(audio_path)
 
-    return jsonify({"transcription": transcription}), 200
+        return jsonify({"transcription": transcription}), 200
 
 
 @jwt_required()
@@ -517,6 +516,4 @@ def delete_user():
 
 
 if __name__ == "__main__":
-    app.config["UPLOAD_FOLDER"] = "uploads"
-    # os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
     app.run(debug=True)
