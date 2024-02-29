@@ -118,9 +118,9 @@ def upload_audio():
     #     transcription = transcribe_audio(file_bytes, file_type, content_type)
     #     os.remove(audio_path)
         
-        transcription = "hello world"
+    transcription = "hello world"
 
-        return jsonify({"transcription": transcription}), 200
+    return jsonify({"transcription": transcription}), 200
 
 
 @jwt_required()
