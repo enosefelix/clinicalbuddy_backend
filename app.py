@@ -70,7 +70,7 @@ from firestore.firestore import (
 from helpers.helpers import upload_pdf_to_qdrant, upload_pdf_to_s3bucket_and_get_info
 
 
-system_prompt = "You are a helpful assistant for an AI assisted chat bot that helps users search through clinical and medical guidelines"
+system_prompt = "You are a helpful assistant for an AI assisted chat bot that helps users search through clinical and medical guidelines. Accept the user question, correct any typographical errors and return the users exact words, Do not answer the questions, just return the exact question"
 
 
 def transcribe_audio(file_bytes, file_type, content_type):
@@ -82,37 +82,16 @@ def transcribe_audio(file_bytes, file_type, content_type):
         response_format="text",
     )
 
-    return transcript
+    corrected_transcript = openAIClient.chat.completions.create(
+        model="gpt-3.5-turbo-0125",
+        temperature=0,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": transcript},
+        ],
+    )
 
-    # corrected_transcript = openAIClient.chat.completions.create(
-    #     model="gpt-3.5-turbo-0125",
-    #     temperature=0,
-    #     messages=[
-    #         {"role": "system", "content": system_prompt},
-    #         {"role": "user", "content": transcript},
-    #     ],
-    # )
-
-    # return corrected_transcript.choices[0].message.content
-
-
-# @app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
-# @cross_origin(origins=FRONT_END_URLS)
-# def upload_audio():
-#     # Define the path to the audio file
-#     audio_path = "./uploads/test.mp3"  # Update with the correct path
-
-#     # Read the audio file as bytes
-#     with open(audio_path, "rb") as file:
-#         file_bytes = file.read()
-
-#     # Call the transcribe_audio function with the audio file bytes
-#     file_type = "mp3"
-#     content_type = "audio/mp3"
-#     transcription = transcribe_audio(file_bytes, file_type, content_type)
-
-#     # Return the transcription as a JSON response
-#     return jsonify({"transcription": transcription}), 200
+    return corrected_transcript.choices[0].message.content
 
 
 @app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
