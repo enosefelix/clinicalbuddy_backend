@@ -19,10 +19,11 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.memory import ChatMessageHistory
+from langchain_core.messages import AIMessage, HumanMessage
 
 
 load_dotenv()
-chat_history = ChatMessageHistory()
+chat_history = []
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
@@ -246,7 +247,7 @@ def conversation_chain(
         chain = create_retrieval_chain(retriever_chain, stuff_documents_chain)
         response = chain.invoke(
             {
-                "chat_history": chat_history.messages,
+                "chat_history": chat_history,
                 "input": user_question,
             }
         )
@@ -280,8 +281,8 @@ def conversation_chain(
         answer = response["answer"]
 
         if answer != "":
-            chat_history.add_user_message(user_question)
-            chat_history.add_ai_message(answer)
+            chat_history.append(HumanMessage(content=user_question))
+            chat_history.append(AIMessage(content=answer))
 
         if conversation_chain is not None:
             return jsonify(
