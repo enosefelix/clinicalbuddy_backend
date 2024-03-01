@@ -6,6 +6,7 @@ import hashlib
 from helpers.constants import LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL
 from werkzeug.utils import secure_filename
 from helpers.helpers import conversation_chain
+from langchain_core.messages import AIMessage, HumanMessage
 from datetime import timedelta
 from flask import Flask, jsonify, request, send_file
 from openai import OpenAI
@@ -38,6 +39,7 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 
 bcrypt = Bcrypt()
+chat_history = []
 openAIClient = OpenAI()
 secret_key = os.environ.get("JWT_SECRET_KEY")
 app.config["JWT_SECRET_KEY"] = secret_key
@@ -131,13 +133,23 @@ def get_conversation_chain():
     cluster = data.get("cluster")
     user_name = get_jwt_identity()
 
-    return conversation_chain(
-        user_question,
-        selected_pdf,
-        qdrant_vector_embedding,
-        cluster,
-        user_name,
-    )
+    try:
+        chain_response = conversation_chain(
+            user_question,
+            selected_pdf,
+            qdrant_vector_embedding,
+            cluster,
+            user_name,
+            chat_history,
+        )
+    except Exception as e:
+        return jsonify({"error": str(e), "status": 400}), 400
+
+    if chain_response["answer"]:
+        chat_history.append(HumanMessage(content=user_question))
+        chat_history.append(AIMessage(content=chain_response["answer"]))
+
+    return jsonify(chain_response), chain_response.get("status", 200)
 
 
 @jwt_required()

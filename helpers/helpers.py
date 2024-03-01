@@ -18,12 +18,10 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.memory import ChatMessageHistory
-from langchain_core.messages import AIMessage, HumanMessage
 
 
 load_dotenv()
-chat_history = []
+
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
@@ -173,6 +171,7 @@ def conversation_chain(
     qdrant_vector_embedding,
     cluster,
     user_name,
+    chat_history,
 ):
     try:
         llm = ChatOpenAI(
@@ -280,24 +279,9 @@ def conversation_chain(
         pdfs_and_pages = list(pdf_dict.values())
         answer = response["answer"]
 
-        if answer != "":
-            chat_history.append(HumanMessage(content=user_question))
-            chat_history.append(AIMessage(content=answer))
-
-        if conversation_chain is not None:
-            return jsonify(
-                {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
-            )
-        else:
-            return jsonify(
-                {
-                    "status": 400,
-                }
-            )
+        return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
     except Exception as e:
-        return jsonify(
-            {
-                "status": 400,
-            }
-        )
+        return {
+            "status": 400,
+        }
