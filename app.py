@@ -76,7 +76,7 @@ from helpers.helpers import (
 
 @app.route("/api/external-search", methods=["POST", "OPTIONS"])
 @cross_origin(
-    origins=FRONT_END_URLS,
+    origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"]
 )
 def external_search():
     try:
