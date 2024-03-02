@@ -1,6 +1,5 @@
 import os
 import io
-
 import uuid
 import boto3
 import hashlib
@@ -26,20 +25,24 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from tavily import TavilyClient
+from langchain_core.messages import AIMessage, HumanMessage
 
 
 load_dotenv()
 
+
+tavily_store = {}
+chat_history = []
+openAIClient = OpenAI()
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
 AWS_S3_BUCKET_NAME = os.getenv("AWS_S3_BUCKET_NAME")
 AWS_REGION = os.getenv("AWS_REGION")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-openAIClient = OpenAI()
-tavily_client = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY"))
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 
 s3_client = boto3.client(
@@ -53,8 +56,6 @@ openAIChatClient = ChatOpenAI(
     temperature=0,
     model="gpt-3.5-turbo-0125",
 )
-
-tavily_store = {}
 
 
 def get_pdf_data(pdf_docs):
@@ -176,12 +177,11 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
             qdrant_vector_embedding.add_texts(texts=texts_datas, metadatas=metadatas)
 
         else:
-            print("Nothing to return")
+            return {"error": str(e)}
 
         return {"status": "success"}
 
     except Exception as e:
-        print(f"Error during PDF processing: {e}")
         return {"error": str(e)}
 
 
@@ -191,7 +191,7 @@ def conversation_chain(
     qdrant_vector_embedding,
     cluster,
     user_name,
-    chat_history,
+    # chat_history,
 ):
     try:
         llm = openAIChatClient
@@ -296,6 +296,12 @@ def conversation_chain(
         pdfs_and_pages = list(pdf_dict.values())
         answer = response["answer"]
 
+        if answer:
+            chat_history.append(HumanMessage(content=user_question))
+            chat_history.append(AIMessage(content=answer))
+
+            # return jsonify(chain_response), chain_response.get("status", 200)
+
         return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
     except Exception as e:
@@ -329,7 +335,6 @@ def transcribe_audio(file_bytes, file_type, content_type):
 
 def question_with_memory(user_question):
     try:
-
         question_prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -340,8 +345,10 @@ def question_with_memory(user_question):
                 ("human", "{input}"),
             ]
         )
-        parser = StrOutputParser()
-        runnable = question_prompt | openAIChatClient | parser
+        string_parser = StrOutputParser()
+        # json_parser = JsonOutputParser()
+
+        runnable = question_prompt | openAIChatClient | string_parser
 
         def get_session_history(session_id: str) -> BaseChatMessageHistory:
             if session_id not in tavily_store:
@@ -367,7 +374,7 @@ def question_with_memory(user_question):
 
 def tavily_search(final_question):
     try:
-        client = TavilyClient(api_key="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")
+        client = TavilyClient(api_key=TAVILY_API_KEY)
         tavily_response = client.search(query=final_question, search_depth="advanced")[
             "results"
         ]

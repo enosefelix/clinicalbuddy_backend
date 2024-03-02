@@ -5,9 +5,7 @@ import logging
 import hashlib
 from helpers.constants import LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL
 from werkzeug.utils import secure_filename
-
 from helpers.helpers import conversation_chain
-from langchain_core.messages import AIMessage, HumanMessage
 from datetime import timedelta
 from flask import Flask, jsonify, request, send_file
 from dotenv import load_dotenv
@@ -36,12 +34,7 @@ logging.basicConfig(filename="clinicalbuddy.log", level=logging.DEBUG)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-
-
 bcrypt = Bcrypt()
-chat_history = []
-tavily_chat_history = []
-
 
 secret_key = os.environ.get("JWT_SECRET_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
@@ -79,6 +72,27 @@ from helpers.helpers import (
     tavily_search,
     question_with_memory,
 )
+
+
+@app.route("/api/external-search", methods=["POST", "OPTIONS"])
+@cross_origin(
+    origins=FRONT_END_URLS,
+)
+def external_search():
+    try:
+        data = request.get_json()
+        user_question = data.get("question")
+        if user_question:
+            final_question = question_with_memory(user_question)
+            if final_question:
+                tavily_results = tavily_search(final_question)
+                return jsonify({"tavily_results": tavily_results})
+            else:
+                return jsonify({"error": "Final question is empty or None"}), 400
+        else:
+            return jsonify({"error": "User question is empty or None"}), 400
+    except Exception as e:
+        return jsonify({"error": "An error occurred while processing the request"}), 500
 
 
 @app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
@@ -119,19 +133,6 @@ def get_conversation_chain():
     user_name = get_jwt_identity()
 
     try:
-        tavily_results = None
-        if user_question != "":
-            try:
-                final_question = question_with_memory(user_question)
-                if final_question != "":
-                    tavily_results = tavily_search(final_question)
-
-            except Exception as e:
-                print(
-                    "An error occurred while making the request to tavily_client.search:",
-                    e,
-                )
-               
 
         chain_response = conversation_chain(
             user_question,
@@ -139,20 +140,12 @@ def get_conversation_chain():
             qdrant_vector_embedding,
             cluster,
             user_name,
-            chat_history,
         )
-        chain_response["tavily_results"] = (
-            tavily_results 
-        )
+
+        return jsonify(chain_response), chain_response.get("status", 200)
 
     except Exception as e:
         return jsonify({"error": str(e), "status": 400}), 400
-
-    if chain_response["answer"]:
-        chat_history.append(HumanMessage(content=user_question))
-        chat_history.append(AIMessage(content=chain_response["answer"]))
-
-    return jsonify(chain_response), chain_response.get("status", 200)
 
 
 @jwt_required()
@@ -244,7 +237,6 @@ def get_pdf():
         )
 
         return response
-
     except Exception as e:
         return jsonify({"status": 400, "error": str(e)})
 
