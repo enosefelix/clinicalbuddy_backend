@@ -1,6 +1,7 @@
 import os
 import io
 import requests
+import uuid
 import logging
 import hashlib
 from helpers.constants import LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL
@@ -25,6 +26,7 @@ from flask_jwt_extended import (
 load_dotenv()
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
 FRONT_END_URLS = [LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL]
+session_uuid = uuid.uuid4()
 
 
 app = Flask(__name__)
@@ -80,6 +82,7 @@ def external_search():
     try:
         data = request.get_json()
         user_question = data.get("question")
+        session_id = data.get("session_id")
 
         if user_question is None:
             return jsonify({"error": "Question not provided in JSON payload"}), 400
@@ -87,7 +90,7 @@ def external_search():
         if user_question.strip() == "":
             return jsonify({"error": "User question is empty"}), 400
 
-        final_question = question_with_memory(user_question)
+        final_question = question_with_memory(user_question, session_id)
 
         if final_question.strip() == "":
             return jsonify({"error": "Final question is empty or None"}), 400
@@ -430,6 +433,7 @@ def login():
     accept_disclaimer = data.get("accept_disclaimer")
     user_obj = fetch_user_by_username(user_name)
     all_users = fetch_all_users_from_firestore()
+    session_id = session_uuid
 
     for user_data in all_users:
         if user_data["user_name"] == user_name and bcrypt.check_password_hash(
@@ -446,6 +450,7 @@ def login():
                         "user_name": user_obj.get("user_name"),
                         "name": user_obj.get("name"),
                         "accept_disclaimer": user_obj.get("accept_disclaimer"),
+                        "session_id": session_id,
                     }
                 },
             )

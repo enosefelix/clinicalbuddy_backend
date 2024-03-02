@@ -333,7 +333,7 @@ def transcribe_audio(file_bytes, file_type, content_type):
     return corrected_transcript.choices[0].message.content
 
 
-def question_with_memory(user_question):
+def question_with_memory(user_question, session_id):
     try:
         question_prompt = ChatPromptTemplate.from_messages(
             [
@@ -346,7 +346,6 @@ def question_with_memory(user_question):
             ]
         )
         string_parser = StrOutputParser()
-        # json_parser = JsonOutputParser()
 
         runnable = question_prompt | openAIChatClient | string_parser
 
@@ -364,7 +363,7 @@ def question_with_memory(user_question):
 
         final_question = with_message_history.invoke(
             {"input": user_question},
-            config={"configurable": {"session_id": "abc123"}},
+            config={"configurable": {"session_id": session_id}},
         )
 
         return final_question
