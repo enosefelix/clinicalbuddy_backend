@@ -80,7 +80,6 @@ def external_search():
     try:
         data = request.get_json()
         user_question = data.get("question")
-        print("user question >>", user_question)
 
         if user_question is None:
             return jsonify({"error": "Question not provided in JSON payload"}), 400
@@ -89,13 +88,11 @@ def external_search():
             return jsonify({"error": "User question is empty"}), 400
 
         final_question = question_with_memory(user_question)
-        print("final question>>", final_question)
 
         if final_question.strip() == "":
             return jsonify({"error": "Final question is empty or None"}), 400
 
         tavily_results = tavily_search(final_question)
-        print("tavily results>>>", tavily_results)
 
         return jsonify({"tavily_results": tavily_results})
 
@@ -104,6 +101,7 @@ def external_search():
 
     except Exception as e:
         return jsonify({"error": "An error occurred while processing the request"}), 500
+
 
 @app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
 @cross_origin(origins=FRONT_END_URLS, headers=["Content-Type", "Authorization"])
