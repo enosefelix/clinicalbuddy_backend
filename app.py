@@ -5,11 +5,11 @@ import logging
 import hashlib
 from helpers.constants import LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL
 from werkzeug.utils import secure_filename
+
 from helpers.helpers import conversation_chain
 from langchain_core.messages import AIMessage, HumanMessage
 from datetime import timedelta
 from flask import Flask, jsonify, request, send_file
-from openai import OpenAI
 from dotenv import load_dotenv
 from flask_cors import CORS, cross_origin
 from flask_bcrypt import Bcrypt
@@ -40,8 +40,11 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 bcrypt = Bcrypt()
 chat_history = []
-openAIClient = OpenAI()
+tavily_chat_history = []
+
+
 secret_key = os.environ.get("JWT_SECRET_KEY")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 app.config["JWT_SECRET_KEY"] = secret_key
 jwt = JWTManager(app)
 
@@ -69,31 +72,13 @@ from firestore.firestore import (
     update_accept_disclaimer_field,
 )
 
-from helpers.helpers import upload_pdf_to_qdrant, upload_pdf_to_s3bucket_and_get_info
-
-
-system_prompt = "You are a helpful assistant for an AI assisted chat bot that helps users search through clinical and medical guidelines. Accept the user question, correct any typographical errors and return the users exact words, Do not answer the questions, just return the exact question"
-
-
-def transcribe_audio(file_bytes, file_type, content_type):
-    file_buffer = io.BytesIO(file_bytes)
-    file_info = ("temp." + file_type, file_buffer, content_type)
-    transcript = openAIClient.audio.transcriptions.create(
-        model="whisper-1",
-        file=file_info,
-        response_format="text",
-    )
-
-    corrected_transcript = openAIClient.chat.completions.create(
-        model="gpt-3.5-turbo-0125",
-        temperature=0,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": transcript},
-        ],
-    )
-
-    return corrected_transcript.choices[0].message.content
+from helpers.helpers import (
+    upload_pdf_to_qdrant,
+    upload_pdf_to_s3bucket_and_get_info,
+    transcribe_audio,
+    tavily_search,
+    question_with_memory,
+)
 
 
 @app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
@@ -134,6 +119,20 @@ def get_conversation_chain():
     user_name = get_jwt_identity()
 
     try:
+        tavily_results = None
+        if user_question != "":
+            try:
+                final_question = question_with_memory(user_question)
+                if final_question != "":
+                    tavily_results = tavily_search(final_question)
+
+            except Exception as e:
+                print(
+                    "An error occurred while making the request to tavily_client.search:",
+                    e,
+                )
+               
+
         chain_response = conversation_chain(
             user_question,
             selected_pdf,
@@ -142,6 +141,10 @@ def get_conversation_chain():
             user_name,
             chat_history,
         )
+        chain_response["tavily_results"] = (
+            tavily_results 
+        )
+
     except Exception as e:
         return jsonify({"error": str(e), "status": 400}), 400
 

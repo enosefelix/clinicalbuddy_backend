@@ -1,4 +1,6 @@
 import os
+import io
+
 import uuid
 import boto3
 import hashlib
@@ -13,11 +15,19 @@ from qdrant.qdrant import (
 )
 from firestore.firestore import fetch_missing_pdfs_from_firestore
 from helpers.constants import UserClusters
+from openai import OpenAI
 from langchain_openai import ChatOpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.adapters.openai import convert_openai_messages
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.output_parsers import StrOutputParser
+from tavily import TavilyClient
 
 
 load_dotenv()
@@ -28,6 +38,9 @@ AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
 AWS_S3_BUCKET_NAME = os.getenv("AWS_S3_BUCKET_NAME")
 AWS_REGION = os.getenv("AWS_REGION")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openAIClient = OpenAI()
+tavily_client = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY"))
+
 
 s3_client = boto3.client(
     service_name="s3",
@@ -35,6 +48,13 @@ s3_client = boto3.client(
     aws_access_key_id=AWS_ACCESS_KEY,
     aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
 )
+
+openAIChatClient = ChatOpenAI(
+    temperature=0,
+    model="gpt-3.5-turbo-0125",
+)
+
+tavily_store = {}
 
 
 def get_pdf_data(pdf_docs):
@@ -174,10 +194,7 @@ def conversation_chain(
     chat_history,
 ):
     try:
-        llm = ChatOpenAI(
-            temperature=0,
-            model="gpt-3.5-turbo-0125",
-        )
+        llm = openAIChatClient
         retriever_filter = None
 
         if (
@@ -285,3 +302,95 @@ def conversation_chain(
         return {
             "status": 400,
         }
+
+
+def transcribe_audio(file_bytes, file_type, content_type):
+    system_prompt = "You are a helpful assistant for an AI assisted chat bot that helps users search through clinical and medical guidelines. Accept the user question, correct any typographical errors and return the users exact words, Do not answer the questions, just return the exact question"
+
+    file_buffer = io.BytesIO(file_bytes)
+    file_info = ("temp." + file_type, file_buffer, content_type)
+    transcript = openAIClient.audio.transcriptions.create(
+        model="whisper-1",
+        file=file_info,
+        response_format="text",
+    )
+
+    corrected_transcript = openAIClient.chat.completions.create(
+        model="gpt-3.5-turbo-0125",
+        temperature=0,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": transcript},
+        ],
+    )
+
+    return corrected_transcript.choices[0].message.content
+
+
+def question_with_memory(user_question):
+    try:
+
+        question_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "Imagine you're an AI assistant tasked with understanding the relationship between two questions. Given an example initial question like 'What is gout?' and the follow-up question 'How is it managed?', your role is to generate a new question that encapsulates the shared context between both questions and provide a final response like 'how is gout managed'. Your response should reflect an understanding of the topic introduced in the initial question and the specific aspect addressed in the follow-up question. Keep the generated question concise and relevant. If the new question can stand alone, then return this as the response",
+                ),
+                MessagesPlaceholder(variable_name="history"),
+                ("human", "{input}"),
+            ]
+        )
+        parser = StrOutputParser()
+        runnable = question_prompt | openAIChatClient | parser
+
+        def get_session_history(session_id: str) -> BaseChatMessageHistory:
+            if session_id not in tavily_store:
+                tavily_store[session_id] = ChatMessageHistory()
+            return tavily_store[session_id]
+
+        with_message_history = RunnableWithMessageHistory(
+            runnable,
+            get_session_history,
+            input_messages_key="input",
+            history_messages_key="history",
+        )
+
+        final_question = with_message_history.invoke(
+            {"input": user_question},
+            config={"configurable": {"session_id": "abc123"}},
+        )
+
+        return final_question
+    except Exception as e:
+        return f"Error occurred: {str(e)}"
+
+
+def tavily_search(final_question):
+    try:
+        client = TavilyClient(api_key="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")
+        tavily_response = client.search(query=final_question, search_depth="advanced")[
+            "results"
+        ]
+
+        prompt = [
+            {
+                "role": "system",
+                "content": f"You are an AI critical thinker research assistant. "
+                f"Your sole purpose is to write well written, critically acclaimed,"
+                f"objective and structured reports on given text.",
+            },
+            {
+                "role": "user",
+                "content": f'Information: """{tavily_response}"""\n\n'
+                f"Using the above information, answer the following"
+                f'query: "{final_question}" in a detailed report --'
+                f"Please use MLA format and markdown syntax.",
+            },
+        ]
+
+        lc_messages = convert_openai_messages(prompt)
+        report = openAIChatClient.invoke(lc_messages).content
+
+        return report
+    except Exception as e:
+        return f"Error occurred: {str(e)}"
