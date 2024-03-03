@@ -239,7 +239,7 @@ def conversation_chain(
                 ("user", "{input}"),
                 (
                     "user",
-                    "Your responsibility as an AI assistant is to analyze each new question in light of the ones previously posed, ensuring a clear understanding of the topic's development without altering the question's original intent. If the initial question is 'What is pemphigus vulgaris?' and the next inquiry evolves into 'What are the risk factors for developing this condition?', your task is to reflect this precise progression in your query formulation. Your objective is to construct a question that remains faithful to the user's latest question, maintaining the exact thematic focus and context. This approach demands that you preserve the essence and specific subject matter of the user's inquiry, resulting in a question like 'What are the risk factors for developing pemphigus vulgaris?'. It is crucial to ensure that your responses accurately mirror the user's questions, demonstrating a keen understanding of the topic's continuity or shifts without veering from the original question's scope."
+                    "Your responsibility as an AI assistant is to analyze each new question in light of the ones previously posed, ensuring a clear understanding of the topic's development without altering the question's original intent. If the initial question is 'What is pemphigus vulgaris?' and the next inquiry evolves into 'What are the risk factors for developing this condition?', your task is to reflect this precise progression in your query formulation. Your objective is to construct a question that remains faithful to the user's latest question, maintaining the exact thematic focus and context. This approach demands that you preserve the essence and specific subject matter of the user's inquiry, resulting in a question like 'What are the risk factors for developing pemphigus vulgaris?'. It is crucial to ensure that your responses accurately mirror the user's questions, demonstrating a keen understanding of the topic's continuity or shifts without veering from the original question's scope.",
                 ),
             ]
         )
@@ -371,9 +371,9 @@ def question_with_memory(user_question, session_id):
 def tavily_search(final_question):
     try:
         client = TavilyClient(api_key=TAVILY_API_KEY)
-        tavily_response = client.search(query=final_question, search_depth="advanced")[
-            "results"
-        ]
+        tavily_response = client.search(
+            query=final_question, search_depth="advanced", max_results=10
+        )["results"]
 
         prompt = [
             {
@@ -385,9 +385,10 @@ def tavily_search(final_question):
             {
                 "role": "user",
                 "content": f'Information: """{tavily_response}"""\n\n'
-                f"Using the above information, answer the following"
-                f'query: "{final_question}" in a detailed report --'
-                f"Ensure your response is structured with medical precision, using MLA format and markdown syntax for clarity and professionalism",
+                f"Based on the provided information, answer the following query: '{final_question}' in a detailed report."
+                f"Within the response, Include clickable references where appropriate to the sources used for each piece of information, ."
+                f"At the end of your response, include all the references in MLA format."
+                f"Ensure your response is structured with medical precision and uses markdown syntax for clarity and professionalism.",
             },
         ]
 
