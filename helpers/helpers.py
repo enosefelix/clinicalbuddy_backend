@@ -382,14 +382,15 @@ def tavily_search(final_question):
                 f"Your primary function is to synthesize well-structured, critically analyzed, and medically accurate reports based on provided information."
                 f"Your responses should emulate the communication style of a medical professional, incorporating appropriate medical terminology and considerations, and always adhere to the present simple tense for consistency",
             },
+            
             {
-            "role": "user",
-            "content": f'Information: """{tavily_response}"""\n\n'
-            f"Based on the provided information, answer the following query: '{final_question}'providing very extensive responses."
-            f"Ensure your response is structured with medical precision and use markdown syntax for clarity and professionalism. "
-            f"Within the response, Include clickable references where appropriate to the sources used for each piece of information,e.g 'Originally, the word chondromalacia stemmed from Greek words. Chrondros means cartilage, and malakia means softening.[2](clickable_url)' "
-            f"Always provide references and use this as a guide to structure the references e.g, 'National Center for Biotechnology Information (NCBI). Severs Disease. [Link](clickable_url)'"
-           }
+                "role": "user",
+                "content": f'Information: """{tavily_response}"""\n\n'
+                f"Using the above information, answer the following"
+                f'query: "{final_question}" providing very extensive responses'
+                f"Ensure your response is structured with medical precision, using MLA and markdown syntax for clarity and professionalism and always include the appropriate references" ,
+            },
+           
 
         ]
 
