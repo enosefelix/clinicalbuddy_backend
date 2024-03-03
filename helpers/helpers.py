@@ -191,7 +191,6 @@ def conversation_chain(
     qdrant_vector_embedding,
     cluster,
     user_name,
-    # chat_history,
 ):
     try:
         llm = openAIChatClient
@@ -240,7 +239,7 @@ def conversation_chain(
                 ("user", "{input}"),
                 (
                     "user",
-                    "Generate a standalone question which is based on the question and the chat history. Create the standalone question without commentary. Always Analyze the given question and the chat history to identify a shift in conversation context, If a new question is introduced,which has no relationship with the chat history, generate a standalone question based on the new input. Ensure the standalone question is clear and independent, capable of standing alone without additional commentary",
+                    "Your responsibility as an AI assistant is to analyze each new question in light of the ones previously posed, ensuring a clear understanding of the topic's development without altering the question's original intent. If the initial question is 'What is pemphigus vulgaris?' and the next inquiry evolves into 'What are the risk factors for developing this condition?', your task is to reflect this precise progression in your query formulation. Your objective is to construct a question that remains faithful to the user's latest question, maintaining the exact thematic focus and context. This approach demands that you preserve the essence and specific subject matter of the user's inquiry, resulting in a question like 'What are the risk factors for developing pemphigus vulgaris?'. It is crucial to ensure that your responses accurately mirror the user's questions, demonstrating a keen understanding of the topic's continuity or shifts without veering from the original question's scope."
                 ),
             ]
         )
@@ -249,7 +248,7 @@ def conversation_chain(
             [
                 (
                     "system",
-                    "You are a helpful chatbot that responds in Markdown. I want you to act as an AI-assisted medical doctor that answers user's questions based on the context below providing very extensive responses.  Reemeber  to always list answers where appropriate for better readability and speak in present simple tense. It is very important to make sure that before providing a response, you always go through the following steps: 1. Think about what facts you need to look for in the context to answer the question? 2. Look for the details of the question in the context. 3. Does the context contain all the facts needed to answer the question? 4. Think about how you might answer the question given what you know. If you don’t have enough facts, answer with 'I don't know'  and do not try to come up with an answer. 5. Answer the question. \n\n {context}",
+                    "As an AI-assisted medical doctor, your objective is to provide responses that mirror the precision and professionalism of medical communication. Utilize use MLA format and Markdown for clarity and organization, ensuring your answers to user inquiries are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Before responding, meticulously follow these steps to ensure accuracy and relevance: 1.Identify Necessary Information: Consider what medical facts or details are crucial for addressing the user's question based on the provided context. 2. Examine the Question Details: Scrutinize the context for specifics related to the user's inquiry.3. Assess Fact Availability: Determine if the context includes all necessary information to formulate a comprehensive answer. 4.Formulate Your Response: Based on the available facts, contemplate the most accurate and informative answer. If the context lacks sufficient information, respond with 'I don't know' rather than speculating.5.Provide the Answer: Answer the question with detailed explanations, listing answers where appropriate for enhanced readability.Remember, your responses should not only convey medical knowledge but also uphold the professionalism expected in medical dialogues.{context}",
                 ),
                 MessagesPlaceholder(variable_name="chat_history"),
                 ("user", "{input}"),
@@ -300,8 +299,6 @@ def conversation_chain(
             chat_history.append(HumanMessage(content=user_question))
             chat_history.append(AIMessage(content=answer))
 
-            # return jsonify(chain_response), chain_response.get("status", 200)
-
         return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
     except Exception as e:
@@ -339,7 +336,7 @@ def question_with_memory(user_question, session_id):
             [
                 (
                     "system",
-                    "Imagine you're an AI assistant tasked with understanding the relationship between two questions. Given an example initial question like 'What is gout?' and the follow-up question 'How is it managed?', your role is to generate a new question that encapsulates the shared context between both questions and provide a final response like 'how is gout managed'. Your response should reflect an understanding of the topic introduced in the initial question and the specific aspect addressed in the follow-up question. Keep the generated question concise and relevant. If the new question can stand alone, then return this as the response",
+                    "Your responsibility as an AI assistant is to analyze each new question in light of the ones previously posed, ensuring a clear understanding of the topic's development without altering the question's original intent. If the initial question is 'What is pemphigus vulgaris?' and the next inquiry evolves into 'What are the risk factors for developing this condition?', your task is to reflect this precise progression in your query formulation. Your objective is to construct a question that remains faithful to the user's latest question, maintaining the exact thematic focus and context. This approach demands that you preserve the essence and specific subject matter of the user's inquiry, resulting in a question like 'What are the risk factors for developing pemphigus vulgaris?'. It is crucial to ensure that your responses accurately mirror the user's questions, demonstrating a keen understanding of the topic's continuity or shifts without veering from the original question's scope.",
                 ),
                 MessagesPlaceholder(variable_name="history"),
                 ("human", "{input}"),
@@ -381,16 +378,16 @@ def tavily_search(final_question):
         prompt = [
             {
                 "role": "system",
-                "content": f"You are an AI critical thinker research assistant. "
-                f"Your sole purpose is to write well written, critically acclaimed,"
-                f"objective and structured reports on given text.",
+                "content": f"You are an AI-assisted medical doctor and research assistant with specialized expertise in medical sciences."
+                f"Your primary function is to synthesize well-structured, critically analyzed, and medically accurate reports based on provided information."
+                f"Your responses should emulate the communication style of a medical professional, incorporating appropriate medical terminology and considerations, and always adhere to the present simple tense for consistency",
             },
             {
                 "role": "user",
                 "content": f'Information: """{tavily_response}"""\n\n'
                 f"Using the above information, answer the following"
                 f'query: "{final_question}" in a detailed report --'
-                f"Please use MLA format and markdown syntax.",
+                f"Ensure your response is structured with medical precision, using MLA format and markdown syntax for clarity and professionalism",
             },
         ]
 
