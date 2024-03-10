@@ -97,7 +97,7 @@ def external_search():
 
         tavily_results = tavily_search(final_question)
 
-        return jsonify({"tavily_results": tavily_results})
+        return jsonify(tavily_results)
 
     except KeyError:
         return jsonify({"error": "Invalid JSON payload"}), 400

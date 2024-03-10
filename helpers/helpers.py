@@ -3,6 +3,7 @@ import io
 import uuid
 import boto3
 import hashlib
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 from pypdf import PdfReader
 from langchain.text_splitter import (
@@ -25,7 +26,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
+from langchain_core.output_parsers import StrOutputParser
 from tavily import TavilyClient
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -56,6 +57,29 @@ openAIChatClient = ChatOpenAI(
     temperature=0,
     model="gpt-3.5-turbo-0125",
 )
+
+domains = [
+    "https://www.nice.org.uk/guidance",
+    "https://cks.nice.org.uk/",
+    "https://dermnetnz.org/",
+    "https://www.pcds.org.uk/",
+    "https://www.fsrh.org/standards-and-guidance/",
+    "https://patient.info/patientplus",
+    "https://www.pcsg.org.uk/",
+    "https://gpnotebook.com/",
+    "https://www.sign.ac.uk/our-guidelines/",
+    "https://rightdecisions.scot.nhs.uk/scottish-palliative-care-guidelines/",
+    "https://www.westmidspallcare.co.uk/",
+    "https://rightdecisions.scot.nhs.uk/scottish-palliative-care-guidelines/",
+    "https://gpifn.org.uk/",
+    "https://www.brit-thoracic.org.uk/quality-improvement/guidelines/",
+    "https://labtestsonline.org.uk/",
+    "https://litfl.com/",
+    "https://www.msdmanuals.com/en-gb/professional",
+    "https://www.rightbreathe.com/",
+    "https://pubmed.ncbi.nlm.nih.gov/",
+    "https://www.cochranelibrary.com/",
+]
 
 
 def get_pdf_data(pdf_docs):
@@ -368,13 +392,26 @@ def question_with_memory(user_question, session_id):
         return f"Error occurred: {str(e)}"
 
 
+def extract_website_name_and_url(data):
+    extracted_data = []
+
+    for item in data:
+        parsed_url = urlparse(item["url"])
+        domain_name = parsed_url.netloc.replace("www.", "")
+        extracted_data.append({"website_name": domain_name, "url": item["url"]})
+
+    return extracted_data
+
+
 def tavily_search(final_question):
     try:
         client = TavilyClient(api_key=TAVILY_API_KEY)
         tavily_response = client.search(
-            query=final_question, search_depth="advanced", max_results=10
+            query=final_question,
+            search_depth="advanced",
+            max_results=5,
         )["results"]
-
+        references = extract_website_name_and_url(tavily_response)
         prompt = [
             {
                 "role": "system",
@@ -382,21 +419,19 @@ def tavily_search(final_question):
                 f"Your primary function is to synthesize well-structured, critically analyzed, and medically accurate reports based on provided information."
                 f"Your responses should emulate the communication style of a medical professional, incorporating appropriate medical terminology and considerations, and always adhere to the present simple tense for consistency",
             },
-            
             {
                 "role": "user",
                 "content": f'Information: """{tavily_response}"""\n\n'
                 f"Using the above information, answer the following"
                 f'query: "{final_question}" providing very extensive responses'
-                f"Ensure your response is structured with medical precision, using MLA and markdown syntax for clarity and professionalism and always include the appropriate references" ,
+                f"Ensure your response is structured with medical precision, using markdown syntax for clarity and professionalism. Never include references in your response",
             },
-           
-
         ]
 
         lc_messages = convert_openai_messages(prompt)
-        report = openAIChatClient.invoke(lc_messages).content
+        answer = openAIChatClient.invoke(lc_messages).content
+        response = {"answer": answer, "references": references}
 
-        return report
+        return response
     except Exception as e:
-        return f"Error occurred: {str(e)}"
+        return f"Error occurred: please try again later"
