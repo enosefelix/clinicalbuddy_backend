@@ -442,7 +442,7 @@ def login():
             # User authenticated, generate JWT
             access_token = create_access_token(
                 identity=user_name,
-                expires_delta=timedelta(minutes=120),
+                expires_delta=timedelta(minutes=480),
                 additional_claims={
                     "user": {
                         "cluster": user_obj.get("cluster"),
