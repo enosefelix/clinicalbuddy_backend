@@ -220,42 +220,28 @@ def conversation_chain(
         llm = openAIChatClient
         retriever_filter = None
 
-        if (
+        is_admin = (
             user_name == SUPER_ADMIN_USERNAME
             or cluster == UserClusters.ADMIN_CLUSTER.value
-        ):
-            if selected_pdf != "":
-                retriever_filter = qdrant_vector_embedding.as_retriever(
-                    search_kwargs={
-                        "filter": {
-                            "source": selected_pdf,
-                        },
-                        "k": 10,
-                    }
-                )
-            else:
-                retriever_filter = qdrant_vector_embedding.as_retriever()
+        )
 
+        if selected_pdf != "":
+            filter_kwargs = {"filter": {"source": selected_pdf}}
+            if not is_admin:
+                filter_kwargs["filter"]["group_id"] = cluster
+        elif not is_admin:
+            filter_kwargs = {"filter": {"group_id": cluster}}
         else:
-            if selected_pdf != "":
-                retriever_filter = qdrant_vector_embedding.as_retriever(
-                    search_kwargs={
-                        "filter": {
-                            "source": selected_pdf,
-                            "group_id": cluster,
-                        },
-                        "k": 10,
-                    }
-                )
-            else:
-                retriever_filter = qdrant_vector_embedding.as_retriever(
-                    search_kwargs={
-                        "filter": {
-                            "group_id": cluster,
-                        },
-                        "k": 10,
-                    }
-                )
+            filter_kwargs = None
+
+        if filter_kwargs:
+            retriever_filter = qdrant_vector_embedding.as_retriever(
+                search_kwargs={"k": 10, **filter_kwargs}
+            )
+        else:
+            retriever_filter = qdrant_vector_embedding.as_retriever(
+                search_kwargs={"k": 10}
+            )
 
         user_prompt = ChatPromptTemplate.from_messages(
             [
@@ -284,31 +270,32 @@ def conversation_chain(
         )
         stuff_documents_chain = create_stuff_documents_chain(llm, system_prompt)
         chain = create_retrieval_chain(retriever_chain, stuff_documents_chain)
+
+        # Invoke the chain with input data
         response = chain.invoke(
             {
                 "chat_history": chat_history,
                 "input": user_question,
             }
         )
+
+        # Process the response
         page_nums = [doc.metadata.get("page_num") for doc in response["context"]]
         pdf_names = [doc.metadata.get("source") for doc in response["context"]]
 
-        pdfs_and_pages = []
         pdf_dict = {}
-
-        def find_pdf_url(pdf_data, target_pdf_name):
-            for pdf_info in pdf_data:
-                if pdf_info["pdf_name"] == target_pdf_name:
-                    return pdf_info["pdf_url"]
-            return None
-
-        cluster = "admin_cluster"
-        user_name = "yahayakenny"
         fetched_missing_pdfs = fetch_missing_pdfs_from_firestore(cluster, user_name)
 
         for pdf_name, page_num in zip(pdf_names, page_nums):
             if pdf_name not in pdf_dict:
-                pdf_url = find_pdf_url(fetched_missing_pdfs, pdf_name)
+                pdf_url = next(
+                    (
+                        pdf_info["pdf_url"]
+                        for pdf_info in fetched_missing_pdfs
+                        if pdf_info["pdf_name"] == pdf_name
+                    ),
+                    None,
+                )
                 pdf_dict[pdf_name] = {
                     "pdf_name": pdf_name,
                     "pdf_url": pdf_url,
@@ -326,9 +313,7 @@ def conversation_chain(
         return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
     except Exception as e:
-        return {
-            "status": 400,
-        }
+        return {"status": 400, "error": str(e)}
 
 
 def transcribe_audio(file_bytes, file_type, content_type):

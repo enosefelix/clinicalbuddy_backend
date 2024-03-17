@@ -7,6 +7,7 @@ import hashlib
 from helpers.constants import LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL
 from werkzeug.utils import secure_filename
 from helpers.helpers import conversation_chain
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from flask import Flask, jsonify, request, send_file
 from dotenv import load_dotenv
@@ -37,6 +38,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 bcrypt = Bcrypt()
+executor = ThreadPoolExecutor()
 
 secret_key = os.environ.get("JWT_SECRET_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
@@ -144,16 +146,17 @@ def get_conversation_chain():
     user_name = get_jwt_identity()
 
     try:
-
-        chain_response = conversation_chain(
+        # using concurrency to improve latency
+        future_chain_response = executor.submit(
+            conversation_chain,
             user_question,
             selected_pdf,
             qdrant_vector_embedding,
             cluster,
             user_name,
         )
-
-        return jsonify(chain_response), chain_response.get("status", 200)
+        response = future_chain_response.result()
+        return jsonify(response), response.get("status", 200)
 
     except Exception as e:
         return jsonify({"error": str(e), "status": 400}), 400
