@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 from google.cloud import firestore, storage
 from flask import jsonify, make_response
+from functools import lru_cache
 
 
 # Load environment variables and initialise firestore
@@ -38,6 +39,11 @@ db = firestore.Client()
 def initialize_storage_client():
     return storage.Client()
 
+
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 storage_client = initialize_storage_client()
 bucket = storage_client.bucket(FIREBASE_STORAGE_BUCKET)
@@ -328,15 +334,30 @@ def update_accept_disclaimer_field(user_name, accept_disclaimer):
                             doc_ref.set({FIRESTORE_USER_REFERENCE_NAME: existing_users})
 
                             return make_response(
-                                jsonify({"message": f"Accept Disclaimer field updated for {user_name}", "status": 200}),
+                                jsonify(
+                                    {
+                                        "message": f"Accept Disclaimer field updated for {user_name}",
+                                        "status": 200,
+                                    }
+                                ),
                             )
                         else:
                             return make_response(
-                                jsonify({"message": f"Accept Disclaimer is already True for {user_name}", "status": 200}),
+                                jsonify(
+                                    {
+                                        "message": f"Accept Disclaimer is already True for {user_name}",
+                                        "status": 200,
+                                    }
+                                ),
                             )
 
                 return make_response(
-                    jsonify({"message": f"User with username {user_name} not found", "status": 404})
+                    jsonify(
+                        {
+                            "message": f"User with username {user_name} not found",
+                            "status": 404,
+                        }
+                    )
                 )
 
         return make_response(
@@ -345,8 +366,14 @@ def update_accept_disclaimer_field(user_name, accept_disclaimer):
 
     except Exception as e:
         return make_response(
-            jsonify({"message": f"Error updating Accept Disclaimer field: {str(e)}", "status": 500})
+            jsonify(
+                {
+                    "message": f"Error updating Accept Disclaimer field: {str(e)}",
+                    "status": 500,
+                }
+            )
         )
+
 
 # Bookmarks
 def fetch_bookmarks_from_firestore(user_name):
@@ -458,7 +485,6 @@ def add_bookmark_to_firestore(bookmark):
         return jsonify({"status": 400, "message": str(upload_error)})
 
 
-# Pdfs
 def fetch_missing_pdfs_from_firestore(cluster, user_name):
     try:
         # Reference to the Firestore document
@@ -492,6 +518,22 @@ def fetch_missing_pdfs_from_firestore(cluster, user_name):
 
     except Exception as fetch_error:
         return jsonify({"status": 400})
+
+
+cached_missing_pdfs = None
+
+
+# Function to fetch and cache missing PDFs from Firestore
+@lru_cache(maxsize=128)
+def fetch_cached_missing_pdfs(cluster, user_name):
+    global cached_missing_pdfs
+    if cached_missing_pdfs is None:
+        logger.info("Fetching missing PDFs from Firestore...")
+        cached_missing_pdfs = fetch_missing_pdfs_from_firestore(cluster, user_name)
+    else:
+        print("missing pdfs>>>", cached_missing_pdfs)
+        logger.info("Using cached missing PDFs...")
+    return cached_missing_pdfs
 
 
 def upload_missing_pdfs_to_firestore(missing_pdfs):

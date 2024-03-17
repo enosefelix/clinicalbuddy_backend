@@ -267,7 +267,7 @@ def get_missing_pdfs():
     if len(response) > 0:
         return jsonify(
             {
-                "pdfs": fetch_missing_pdfs_from_firestore(cluster, user_name),
+                "pdfs": response,
                 "status": 200,
             }
         )

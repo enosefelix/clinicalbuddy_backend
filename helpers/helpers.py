@@ -13,7 +13,10 @@ from flask import jsonify
 from qdrant.qdrant import (
     qdrant_vector_embedding,
 )
-from firestore.firestore import fetch_missing_pdfs_from_firestore
+from firestore.firestore import (
+    fetch_cached_missing_pdfs,
+)
+
 from helpers.constants import UserClusters
 from openai import OpenAI
 from langchain_openai import ChatOpenAI
@@ -32,8 +35,6 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 
 load_dotenv()
-
-
 tavily_store = {}
 chat_history = []
 openAIClient = OpenAI()
@@ -217,6 +218,7 @@ def conversation_chain(
     user_name,
 ):
     try:
+
         llm = openAIChatClient
         retriever_filter = None
 
@@ -271,7 +273,6 @@ def conversation_chain(
         stuff_documents_chain = create_stuff_documents_chain(llm, system_prompt)
         chain = create_retrieval_chain(retriever_chain, stuff_documents_chain)
 
-        # Invoke the chain with input data
         response = chain.invoke(
             {
                 "chat_history": chat_history,
@@ -279,12 +280,11 @@ def conversation_chain(
             }
         )
 
-        # Process the response
         page_nums = [doc.metadata.get("page_num") for doc in response["context"]]
         pdf_names = [doc.metadata.get("source") for doc in response["context"]]
-
         pdf_dict = {}
-        fetched_missing_pdfs = fetch_missing_pdfs_from_firestore(cluster, user_name)
+
+        fetched_missing_pdfs = fetch_cached_missing_pdfs(cluster, user_name)
 
         for pdf_name, page_num in zip(pdf_names, page_nums):
             if pdf_name not in pdf_dict:
