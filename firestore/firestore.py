@@ -40,11 +40,6 @@ def initialize_storage_client():
     return storage.Client()
 
 
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 storage_client = initialize_storage_client()
 bucket = storage_client.bucket(FIREBASE_STORAGE_BUCKET)
 
@@ -528,11 +523,10 @@ cached_missing_pdfs = None
 def fetch_cached_missing_pdfs(cluster, user_name):
     global cached_missing_pdfs
     if cached_missing_pdfs is None:
-        logger.info("Fetching missing PDFs from Firestore...")
         cached_missing_pdfs = fetch_missing_pdfs_from_firestore(cluster, user_name)
     else:
         print("missing pdfs>>>", cached_missing_pdfs)
-        logger.info("Using cached missing PDFs...")
+
     return cached_missing_pdfs
 
 
