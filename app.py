@@ -155,7 +155,7 @@ def get_conversation_chain():
             qdrant_vector_embedding,
             cluster,
             user_name,
-            session_id
+            session_id,
         )
         response = future_chain_response.result()
         return jsonify(response), response.get("status", 200)
@@ -263,9 +263,9 @@ def get_pdf():
 def get_missing_pdfs():
     verify_jwt_in_request()
     cluster = request.args.get("cluster", type=str)
-    user_name = get_jwt_identity()
+    session_id = request.args.get("session_id", type=str)
 
-    response = fetch_missing_pdfs_from_firestore(cluster, user_name)
+    response = fetch_missing_pdfs_from_firestore(cluster, session_id)
     if len(response) > 0:
         return jsonify(
             {
@@ -345,7 +345,8 @@ def upload_pdf():
         uploaded_files = request.files.getlist("files")
         category = request.form.get("category")
         cluster = request.form.get("cluster")
-        fetched_pdfs = fetch_missing_pdfs_from_firestore(cluster, user_name)
+        session_id = request.form.get("session_id")
+        fetched_pdfs = fetch_missing_pdfs_from_firestore(cluster, session_id)
 
         for uploaded_file in uploaded_files:
             pdf_name = uploaded_file.filename

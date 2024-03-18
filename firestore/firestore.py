@@ -375,12 +375,13 @@ def add_bookmark_to_firestore(bookmark):
         return jsonify({"status": 400, "message": str(upload_error)})
 
 
-def fetch_missing_pdfs_from_firestore(cluster, user_name):
+# pdfs
+def fetch_missing_pdfs_from_firestore(cluster, session_id):
     global cached_missing_pdfs
 
     try:
         if cluster in cached_missing_pdfs:
-            return cached_missing_pdfs[cluster]
+            return cached_missing_pdfs[session_id]
 
         doc_ref = db.collection(FIRESTORE_COLLECTION_NAME).document(
             FIRESTORE_DOCUMENT_NAME
@@ -398,7 +399,7 @@ def fetch_missing_pdfs_from_firestore(cluster, user_name):
                         item for item in missing_pdfs if item.get("cluster") == cluster
                     ]
 
-                cached_missing_pdfs[cluster] = missing_pdfs
+                cached_missing_pdfs[session_id] = missing_pdfs
                 return missing_pdfs
 
         return []
