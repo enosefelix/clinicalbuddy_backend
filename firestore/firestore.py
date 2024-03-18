@@ -1,10 +1,8 @@
 import os
+import time
 from dotenv import load_dotenv
 from google.cloud import firestore, storage
 from flask import jsonify, make_response
-from functools import lru_cache
-from threading import Timer
-from datetime import datetime, timedelta
 
 
 # Load environment variables and initialise firestore
@@ -37,6 +35,8 @@ FIRESTORE_FLOWCHART_REFERENCE_NAME = "flowcharts"
 # Firebase Config
 db = firestore.Client()
 
+cached_missing_pdfs = {}
+
 
 def initialize_storage_client():
     return storage.Client()
@@ -44,28 +44,6 @@ def initialize_storage_client():
 
 storage_client = initialize_storage_client()
 bucket = storage_client.bucket(FIREBASE_STORAGE_BUCKET)
-
-
-# Define the cache expiration time (30 minutes)
-CACHE_EXPIRATION_TIME = timedelta(minutes=30)
-
-
-# Function to refresh the cached PDFs
-def refresh_cached_missing_pdfs():
-    global cached_missing_pdfs
-
-    try:
-        cached_missing_pdfs = {}
-        # Schedule the next cache refresh
-        Timer(
-            CACHE_EXPIRATION_TIME.total_seconds(), refresh_cached_missing_pdfs
-        ).start()
-    except KeyboardInterrupt:
-        return
-
-
-# Start the cache refresh process
-refresh_cached_missing_pdfs()
 
 
 def fetch_user_by_username(user_name):
@@ -398,11 +376,13 @@ def add_bookmark_to_firestore(bookmark):
         return jsonify({"status": 400, "message": str(upload_error)})
 
 
-# pdfs
-def fetch_missing_pdfs_from_firestore(cluster, session_id):
+def fetch_missing_pdfs_from_firestore(cluster, session_id, token_expiry):
     global cached_missing_pdfs
 
     try:
+        # Clear cache if token has expired
+        clear_cache_if_token_expired(token_expiry)
+
         if session_id in cached_missing_pdfs:
             return cached_missing_pdfs[session_id]
 
@@ -412,6 +392,7 @@ def fetch_missing_pdfs_from_firestore(cluster, session_id):
         doc = doc_ref.get()
 
         if doc.exists:
+
             doc_data = doc.to_dict()
 
             if doc_data and FIRESTORE_REFERENCE_NAME in doc_data:
@@ -422,13 +403,25 @@ def fetch_missing_pdfs_from_firestore(cluster, session_id):
                         item for item in missing_pdfs if item.get("cluster") == cluster
                     ]
 
+                # Cache the result
                 cached_missing_pdfs[session_id] = missing_pdfs
+
                 return missing_pdfs
 
         return []
 
     except Exception as fetch_error:
         return []
+
+
+def clear_cache_if_token_expired(token_expiry):
+    current_time = int(time.time())
+    if isinstance(token_expiry, str):
+        token_expiry = int(token_expiry)
+
+    if current_time >= token_expiry:
+        global cached_missing_pdfs
+        cached_missing_pdfs = {}
 
 
 def upload_missing_pdfs_to_firestore(missing_pdfs):

@@ -264,8 +264,9 @@ def get_missing_pdfs():
     verify_jwt_in_request()
     cluster = request.args.get("cluster", type=str)
     session_id = request.args.get("session_id", type=str)
+    token_expiry = request.args.get("token_expiry")
 
-    response = fetch_missing_pdfs_from_firestore(cluster, session_id)
+    response = fetch_missing_pdfs_from_firestore(cluster, session_id, token_expiry)
     if len(response) > 0:
         return jsonify(
             {
@@ -346,7 +347,8 @@ def upload_pdf():
         category = request.form.get("category")
         cluster = request.form.get("cluster")
         session_id = request.form.get("session_id")
-        fetched_pdfs = fetch_missing_pdfs_from_firestore(cluster, session_id)
+        token_expiry =  request.form.get("token_expiry")
+        fetched_pdfs = fetch_missing_pdfs_from_firestore(cluster, session_id, token_expiry)
 
         for uploaded_file in uploaded_files:
             pdf_name = uploaded_file.filename
