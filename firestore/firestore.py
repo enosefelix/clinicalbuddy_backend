@@ -42,112 +42,7 @@ def initialize_storage_client():
 
 storage_client = initialize_storage_client()
 bucket = storage_client.bucket(FIREBASE_STORAGE_BUCKET)
-
-
-# # Flowcharts
-# def upload_flowcharts_to_firestore(flow_charts):
-#     try:
-#         doc_ref = db.collection(FIRESTORE_FLOWCHART_COLLECTION_NAME).document(
-#             FIRESTORE_FLOWCHART_DOCUMENT_NAME
-#         )
-
-#         # Get the current data from Firestore
-#         doc = doc_ref.get()
-
-#         # Check if the document exists
-#         if doc.exists:
-#             doc_data = doc.to_dict()
-
-#             if doc_data:
-#                 # If the document exists, update the "flow_charts" field with new data
-#                 existing_flow_charts = doc_data.get(
-#                     FIRESTORE_FLOWCHART_REFERENCE_NAME, []
-#                 )
-
-#                 # Check for duplicates based on the "url" field
-#                 existing_urls = {
-#                     flow_chart["url"] for flow_chart in existing_flow_charts
-#                 }
-#                 new_flow_charts = [
-#                     flow_chart
-#                     for flow_chart in flow_charts
-#                     if flow_chart["url"] not in existing_urls
-#                 ]
-#                 duplicate_urls = [
-#                     flow_chart["url"]
-#                     for flow_chart in flow_charts
-#                     if flow_chart["url"] in existing_urls
-#                 ]
-
-#                 if duplicate_urls:
-#                     st.warning(
-#                         f"Flowcharts with these URLs already exist in the database: {', '.join(duplicate_urls)}"
-#                     )
-#                     return "error"
-
-#                 # Update the "flow_charts" field with new and unique data
-#                 updated_flow_charts = existing_flow_charts + new_flow_charts
-#                 doc_data[FIRESTORE_FLOWCHART_REFERENCE_NAME] = updated_flow_charts
-
-#                 # Update the Firestore document with the merged data
-#                 doc_ref.set(doc_data)
-#                 st.success(f"{len(new_flow_charts)} files successfully uploaded")
-#                 return new_flow_charts
-#             else:
-#                 st.warning("Document data is empty.")
-#                 return "error"
-
-#         else:
-#             # If the document doesn't exist, create a new one with the new data
-#             doc_ref.set({FIRESTORE_FLOWCHART_REFERENCE_NAME: flow_charts})
-#             return flow_charts
-
-#     except Exception as upload_error:
-#         st.error(
-#             f"Error uploading missing flowcharts to Firestore: {str(upload_error)}"
-#         )
-#         return "error"
-
-
-# def fetch_flowcharts_from_firestore(user_name):
-#     try:
-#         # Reference to the Firestore document
-#         doc_ref = db.collection(FIRESTORE_FLOWCHART_COLLECTION_NAME).document(
-#             FIRESTORE_FLOWCHART_DOCUMENT_NAME
-#         )
-
-#         # Get the document data
-#         doc = doc_ref.get()
-
-#         # Check if the document exists
-#         if doc.exists:
-#             doc_data = doc.to_dict()
-
-#             if doc_data and FIRESTORE_FLOWCHART_REFERENCE_NAME in doc_data:
-#                 flowcharts = doc_data[FIRESTORE_FLOWCHART_REFERENCE_NAME]
-
-#                 # Filter flowcharts based on the user_name
-#                 filtered_flowcharts = [
-#                     item for item in flowcharts if item.get("user_name") == user_name
-#                 ]
-
-#                 if filtered_flowcharts:
-#                     return filtered_flowcharts
-#                 else:
-#                     return []
-
-#             else:
-#                 st.error("Document data is empty.")
-
-#         else:
-#             st.error("Document does not exist.")
-
-#     except Exception as fetch_error:
-#         st.error(f"Error fetching flowcharts from Firestore: {str(fetch_error)}")
-#         return []
-
-
-# Users
+cached_missing_pdfs = {}
 
 
 def fetch_user_by_username(user_name):
@@ -481,53 +376,35 @@ def add_bookmark_to_firestore(bookmark):
 
 
 def fetch_missing_pdfs_from_firestore(cluster, user_name):
+    global cached_missing_pdfs
+
     try:
-        # Reference to the Firestore document
+        if cluster in cached_missing_pdfs:
+            return cached_missing_pdfs[cluster]
+
         doc_ref = db.collection(FIRESTORE_COLLECTION_NAME).document(
             FIRESTORE_DOCUMENT_NAME
         )
-
-        # Get the document data
         doc = doc_ref.get()
 
-        # Check if the document exists
         if doc.exists:
             doc_data = doc.to_dict()
 
             if doc_data and FIRESTORE_REFERENCE_NAME in doc_data:
                 missing_pdfs = doc_data[FIRESTORE_REFERENCE_NAME]
 
-                # Filter missing_pdfs based on the cluster
-                filtered_missing_pdfs = [
-                    item for item in missing_pdfs if item.get("cluster") == cluster
-                ]
+                if cluster != "admin_cluster":
+                    missing_pdfs = [
+                        item for item in missing_pdfs if item.get("cluster") == cluster
+                    ]
 
-                # Return all missing_pdfs if the current user is a super admin
-                if cluster == "admin_cluster":
-                    return missing_pdfs
-                else:
-                    return filtered_missing_pdfs
+                cached_missing_pdfs[cluster] = missing_pdfs
+                return missing_pdfs
 
-        else:
-            return jsonify({"status": 400})
+        return []
 
     except Exception as fetch_error:
-        return jsonify({"status": 400})
-
-
-cached_missing_pdfs = None
-
-
-# Function to fetch and cache missing PDFs from Firestore
-@lru_cache(maxsize=128)
-def fetch_cached_missing_pdfs(cluster, user_name):
-    global cached_missing_pdfs
-    if cached_missing_pdfs is None:
-        cached_missing_pdfs = fetch_missing_pdfs_from_firestore(cluster, user_name)
-    else:
-        print("missing pdfs>>>", cached_missing_pdfs)
-
-    return cached_missing_pdfs
+        return []
 
 
 def upload_missing_pdfs_to_firestore(missing_pdfs):

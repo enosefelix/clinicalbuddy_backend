@@ -13,9 +13,7 @@ from flask import jsonify
 from qdrant.qdrant import (
     qdrant_vector_embedding,
 )
-from firestore.firestore import (
-    fetch_cached_missing_pdfs,
-)
+from firestore.firestore import fetch_missing_pdfs_from_firestore
 
 from helpers.constants import UserClusters
 from openai import OpenAI
@@ -36,7 +34,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 load_dotenv()
 tavily_store = {}
-chat_history = []
+chat_history = {}
 openAIClient = OpenAI()
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
@@ -211,16 +209,13 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
 
 
 def conversation_chain(
-    user_question,
-    selected_pdf,
-    qdrant_vector_embedding,
-    cluster,
-    user_name,
+    user_question, selected_pdf, qdrant_vector_embedding, cluster, user_name, session_id
 ):
     try:
 
         llm = openAIChatClient
         retriever_filter = None
+        fetched_missing_pdfs = fetch_missing_pdfs_from_firestore(cluster, user_name)
 
         is_admin = (
             user_name == SUPER_ADMIN_USERNAME
@@ -275,18 +270,16 @@ def conversation_chain(
 
         response = chain.invoke(
             {
-                "chat_history": chat_history,
+                "chat_history": chat_history.get(session_id, []),
                 "input": user_question,
             }
         )
 
-        page_nums = [doc.metadata.get("page_num") for doc in response["context"]]
-        pdf_names = [doc.metadata.get("source") for doc in response["context"]]
         pdf_dict = {}
 
-        fetched_missing_pdfs = fetch_cached_missing_pdfs(cluster, user_name)
-
-        for pdf_name, page_num in zip(pdf_names, page_nums):
+        for doc in response["context"]:
+            pdf_name = doc.metadata.get("source")
+            page_num = doc.metadata.get("page_num")
             if pdf_name not in pdf_dict:
                 pdf_url = next(
                     (
@@ -307,8 +300,10 @@ def conversation_chain(
         answer = response["answer"]
 
         if answer:
-            chat_history.append(HumanMessage(content=user_question))
-            chat_history.append(AIMessage(content=answer))
+            if session_id not in chat_history:
+                chat_history[session_id] = []
+            chat_history[session_id].append(HumanMessage(content=user_question))
+            chat_history[session_id].append(AIMessage(content=answer))
 
         return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 

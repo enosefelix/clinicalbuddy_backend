@@ -144,6 +144,7 @@ def get_conversation_chain():
     selected_pdf = data.get("selected_pdf")
     cluster = data.get("cluster")
     user_name = get_jwt_identity()
+    session_id = data.get("session_id")
 
     try:
         # using concurrency to improve latency
@@ -154,6 +155,7 @@ def get_conversation_chain():
             qdrant_vector_embedding,
             cluster,
             user_name,
+            session_id
         )
         response = future_chain_response.result()
         return jsonify(response), response.get("status", 200)
