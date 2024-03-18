@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 from google.cloud import firestore, storage
 from flask import jsonify, make_response
 from functools import lru_cache
+from threading import Timer
+from datetime import datetime, timedelta
 
 
 # Load environment variables and initialise firestore
@@ -42,7 +44,28 @@ def initialize_storage_client():
 
 storage_client = initialize_storage_client()
 bucket = storage_client.bucket(FIREBASE_STORAGE_BUCKET)
-cached_missing_pdfs = {}
+
+
+# Define the cache expiration time (30 minutes)
+CACHE_EXPIRATION_TIME = timedelta(minutes=30)
+
+
+# Function to refresh the cached PDFs
+def refresh_cached_missing_pdfs():
+    global cached_missing_pdfs
+
+    try:
+        cached_missing_pdfs = {}
+        # Schedule the next cache refresh
+        Timer(
+            CACHE_EXPIRATION_TIME.total_seconds(), refresh_cached_missing_pdfs
+        ).start()
+    except KeyboardInterrupt:
+        return
+
+
+# Start the cache refresh process
+refresh_cached_missing_pdfs()
 
 
 def fetch_user_by_username(user_name):
@@ -380,7 +403,7 @@ def fetch_missing_pdfs_from_firestore(cluster, session_id):
     global cached_missing_pdfs
 
     try:
-        if cluster in cached_missing_pdfs:
+        if session_id in cached_missing_pdfs:
             return cached_missing_pdfs[session_id]
 
         doc_ref = db.collection(FIRESTORE_COLLECTION_NAME).document(
