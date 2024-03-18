@@ -209,13 +209,14 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
 
 
 def conversation_chain(
-    user_question, selected_pdf, qdrant_vector_embedding, cluster, user_name, session_id
+    user_question, selected_pdf, qdrant_vector_embedding, cluster, user_name, session_id, token_expiry
 ):
     try:
 
         llm = openAIChatClient
         retriever_filter = None
-        fetched_missing_pdfs = fetch_missing_pdfs_from_firestore(cluster, user_name)
+     
+        fetched_missing_pdfs = fetch_missing_pdfs_from_firestore(cluster, session_id,token_expiry)
 
         is_admin = (
             user_name == SUPER_ADMIN_USERNAME

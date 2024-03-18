@@ -145,6 +145,7 @@ def get_conversation_chain():
     cluster = data.get("cluster")
     user_name = get_jwt_identity()
     session_id = data.get("session_id")
+    token_expiry = data.get("token_expiry")
 
     try:
         # using concurrency to improve latency
@@ -156,6 +157,7 @@ def get_conversation_chain():
             cluster,
             user_name,
             session_id,
+            token_expiry,
         )
         response = future_chain_response.result()
         return jsonify(response), response.get("status", 200)
@@ -264,7 +266,7 @@ def get_missing_pdfs():
     verify_jwt_in_request()
     cluster = request.args.get("cluster", type=str)
     session_id = request.args.get("session_id", type=str)
-    token_expiry = request.args.get("token_expiry")
+    token_expiry = request.args.get("token_expiry", type=str)
 
     response = fetch_missing_pdfs_from_firestore(cluster, session_id, token_expiry)
     if len(response) > 0:
