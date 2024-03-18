@@ -15,7 +15,7 @@ from qdrant.qdrant import (
 )
 from firestore.firestore import fetch_missing_pdfs_from_firestore
 
-from helpers.constants import UserClusters
+from helpers.constants import UserClusters, MED_PROMPTS
 from openai import OpenAI
 from langchain_openai import ChatOpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -317,10 +317,11 @@ def transcribe_audio(file_bytes, file_type, content_type):
 
     file_buffer = io.BytesIO(file_bytes)
     file_info = ("temp." + file_type, file_buffer, content_type)
-    transcript = openAIClient.audio.transcriptions.create(
+    transcript = openAIClient.audio.translations.create(
         model="whisper-1",
         file=file_info,
         response_format="text",
+        prompt = MED_PROMPTS
     )
 
     corrected_transcript = openAIClient.chat.completions.create(
