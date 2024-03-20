@@ -21,13 +21,13 @@ from flask_jwt_extended import (
     get_jwt_identity,
     verify_jwt_in_request,
 )
+from datetime import datetime
 
 
 # Load environment variables
 load_dotenv()
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
 FRONT_END_URLS = [LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL]
-session_uuid = uuid.uuid4()
 
 
 app = Flask(__name__)
@@ -44,6 +44,22 @@ secret_key = os.environ.get("JWT_SECRET_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 app.config["JWT_SECRET_KEY"] = secret_key
 jwt = JWTManager(app)
+
+# Initialize session_obj if not already initialized
+if "session_obj" not in globals():
+    session_obj = {}
+
+
+def check_token_expired(user_name, session_id, session_obj):
+    token_expired = False
+    if user_name in session_obj:
+        login_attempts = session_obj[user_name]
+        if len(login_attempts) > 1:
+            previous_session_id = login_attempts[-2]["session_id"]
+            if previous_session_id != session_id:
+                token_expired = True
+
+    return token_expired
 
 
 from qdrant.qdrant import (
@@ -145,9 +161,10 @@ def get_conversation_chain():
     cluster = data.get("cluster")
     user_name = get_jwt_identity()
     session_id = data.get("session_id")
-    token_expiry = data.get("token_expiry")
 
     try:
+        token_expired = check_token_expired(user_name, session_id, session_obj)
+
         # using concurrency to improve latency
         future_chain_response = executor.submit(
             conversation_chain,
@@ -157,7 +174,7 @@ def get_conversation_chain():
             cluster,
             user_name,
             session_id,
-            token_expiry,
+            token_expired,
         )
         response = future_chain_response.result()
         return jsonify(response), response.get("status", 200)
@@ -266,9 +283,10 @@ def get_missing_pdfs():
     verify_jwt_in_request()
     cluster = request.args.get("cluster", type=str)
     session_id = request.args.get("session_id", type=str)
-    token_expiry = request.args.get("token_expiry", type=str)
+    user_name = get_jwt_identity()
+    token_expired = check_token_expired(user_name, session_id, session_obj)
 
-    response = fetch_missing_pdfs_from_firestore(cluster, session_id, token_expiry)
+    response = fetch_missing_pdfs_from_firestore(cluster, session_id, token_expired)
     if len(response) > 0:
         return jsonify(
             {
@@ -340,7 +358,6 @@ def upload_pdf():
         verify_jwt_in_request()
         user_name = get_jwt_identity()
         new_pdfs = []
-
         existing_pdfs = []
         new_pdf_file_objs = []
         if "files" not in request.files:
@@ -349,8 +366,11 @@ def upload_pdf():
         category = request.form.get("category")
         cluster = request.form.get("cluster")
         session_id = request.form.get("session_id")
-        token_expiry =  request.form.get("token_expiry")
-        fetched_pdfs = fetch_missing_pdfs_from_firestore(cluster, session_id, token_expiry)
+        token_expired = check_token_expired(user_name, session_id, session_obj)
+
+        fetched_pdfs = fetch_missing_pdfs_from_firestore(
+            cluster, session_id, token_expired
+        )
 
         for uploaded_file in uploaded_files:
             pdf_name = uploaded_file.filename
@@ -383,7 +403,6 @@ def upload_pdf():
                 "new_pdfs": new_pdfs,
             }
         )
-
     except Exception as e:
         return jsonify({"status": 500, "message": "Internal Server Error"})
 
@@ -443,12 +462,24 @@ def login():
     accept_disclaimer = data.get("accept_disclaimer")
     user_obj = fetch_user_by_username(user_name)
     all_users = fetch_all_users_from_firestore()
-    session_id = session_uuid
+    session_id = str(uuid.uuid4())
+
+    # Ensure the user entry exists in session_obj
+    if user_name not in session_obj:
+        session_obj[user_name] = []
 
     for user_data in all_users:
         if user_data["user_name"] == user_name and bcrypt.check_password_hash(
             user_data["password"], password
         ):
+
+            session_obj[user_name].append(
+                {
+                    "session_id": session_id,
+                    "login_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            )
+
             # User authenticated, generate JWT
             access_token = create_access_token(
                 identity=user_name,

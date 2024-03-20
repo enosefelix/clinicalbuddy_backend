@@ -376,12 +376,12 @@ def add_bookmark_to_firestore(bookmark):
         return jsonify({"status": 400, "message": str(upload_error)})
 
 
-def fetch_missing_pdfs_from_firestore(cluster, session_id, token_expiry):
+def fetch_missing_pdfs_from_firestore(cluster, session_id, token_expired):
     global cached_missing_pdfs
 
     try:
-        # Clear cache if token has expired
-        clear_cache_if_token_expired(token_expiry)
+        if token_expired:
+            cached_missing_pdfs = {}
 
         if session_id in cached_missing_pdfs:
             return cached_missing_pdfs[session_id]
@@ -412,16 +412,6 @@ def fetch_missing_pdfs_from_firestore(cluster, session_id, token_expiry):
 
     except Exception as fetch_error:
         return []
-
-
-def clear_cache_if_token_expired(token_expiry):
-    current_time = int(time.time())
-    if isinstance(token_expiry, str):
-        token_expiry = int(token_expiry)
-
-    if current_time >= token_expiry:
-        global cached_missing_pdfs
-        cached_missing_pdfs = {}
 
 
 def upload_missing_pdfs_to_firestore(missing_pdfs):
