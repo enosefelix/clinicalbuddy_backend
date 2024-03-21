@@ -225,7 +225,7 @@ def conversation_chain(
     try:
         global global_chat_history
 
-        logging.debug("Chat history before retrieval: %s", global_chat_history)
+        logging.debug(">>>>>Chat history before retrieval: %s", global_chat_history)
 
         llm = openAIChatClient
         retriever_filter = None
@@ -303,7 +303,8 @@ def conversation_chain(
         )
 
         # Log the chat history after accessing it
-        logging.debug("Chat history after retrieval: %s", global_chat_history)
+        logging.debug(">>>>>Chat history after retrieval: %s", global_chat_history)
+        logging.debug(">>>>>session id: %s", session_id)
 
         pdf_dict = {}
 
