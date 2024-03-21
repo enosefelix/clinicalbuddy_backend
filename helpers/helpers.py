@@ -288,6 +288,10 @@ def conversation_chain(
             answer=document_chain,
         )
 
+
+        print("chat hx>>>", global_chat_history)
+
+
         response = conversational_retrieval_chain.invoke(
             {
                 "input": user_question,
