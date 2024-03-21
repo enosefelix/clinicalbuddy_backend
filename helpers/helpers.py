@@ -34,7 +34,7 @@ from langchain.memory import ChatMessageHistory
 
 load_dotenv()
 tavily_store = {}
-chat_history = {}
+global_chat_history = {}
 openAIClient = OpenAI()
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
@@ -208,6 +208,8 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
         return {"error": str(e)}
 
 
+
+
 def conversation_chain(
     user_question,
     selected_pdf,
@@ -218,6 +220,7 @@ def conversation_chain(
     token_expired,
 ):
     try:
+        global global_chat_history  
 
         llm = openAIChatClient
         retriever_filter = None
@@ -288,7 +291,7 @@ def conversation_chain(
         response = conversational_retrieval_chain.invoke(
             {
                 "input": user_question,
-                "messages": chat_history.get(session_id, ChatMessageHistory()).messages,
+                "messages": global_chat_history.get(session_id, ChatMessageHistory()).messages,
             }
         )
 
@@ -317,15 +320,16 @@ def conversation_chain(
 
         answer = response["answer"]
         if answer:
-            if session_id not in chat_history:
-                chat_history[session_id] = ChatMessageHistory()
-            chat_history[session_id].add_user_message(user_question)
-            chat_history[session_id].add_ai_message(answer)
+            if session_id not in global_chat_history:
+                global_chat_history[session_id] = ChatMessageHistory()
+            global_chat_history[session_id].add_user_message(user_question)
+            global_chat_history[session_id].add_ai_message(answer)
 
         return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
     except Exception as e:
         return {"status": 400, "error": str(e)}
+
 
 
 def transcribe_audio(file_bytes, file_type, content_type):
@@ -430,3 +434,4 @@ def tavily_search(final_question):
         return response
     except Exception as e:
         return f"Error occurred: please try again later"
+    
