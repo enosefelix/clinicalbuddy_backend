@@ -29,6 +29,7 @@ from tavily import TavilyClient
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableBranch
+from langchain.memory import ChatMessageHistory
 
 
 load_dotenv()
@@ -287,7 +288,7 @@ def conversation_chain(
         response = conversational_retrieval_chain.invoke(
             {
                 "input": user_question,
-                "messages": chat_history.get(session_id, []),
+                "messages": chat_history.get(session_id, ChatMessageHistory()).messages,
             }
         )
 
@@ -317,9 +318,9 @@ def conversation_chain(
         answer = response["answer"]
         if answer:
             if session_id not in chat_history:
-                chat_history[session_id] = []
-            chat_history[session_id].append(HumanMessage(content=user_question))
-            chat_history[session_id].append(AIMessage(content=answer))
+                chat_history[session_id] = ChatMessageHistory()
+            chat_history[session_id].add_user_message(user_question)
+            chat_history[session_id].add_ai_message(answer)
 
         return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
