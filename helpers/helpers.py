@@ -38,7 +38,6 @@ logging.basicConfig(filename="conversation.log", level=logging.DEBUG)
 
 load_dotenv()
 tavily_store = {}
-chat_history = ChatMessageHistory()
 openAIClient = OpenAI()
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
@@ -62,7 +61,7 @@ openAIChatClient = ChatOpenAI(
 )
 
 
-llm = openAIChatClient
+chat_history = ChatMessageHistory()
 
 domains = [
     "https://www.nice.org.uk/guidance",
@@ -215,26 +214,6 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
         return {"error": str(e)}
 
 
-def summarize_messages(chain_input):
-    stored_messages = chat_history.messages
-    if len(stored_messages) == 0:
-        return False
-    summarization_prompt = ChatPromptTemplate.from_messages(
-        [
-            MessagesPlaceholder(variable_name="messages"),
-            (
-                "user",
-                "Distill the above chat messages into a single summary message. Include as many specific details as you can.",
-            ),
-        ]
-    )
-    summarization_chain = summarization_prompt | llm
-    summary_message = summarization_chain.invoke({"messages": stored_messages})
-    chat_history.clear()
-    chat_history.add_message(summary_message)
-    return True
-
-
 def conversation_chain(
     user_question,
     selected_pdf,
@@ -245,6 +224,26 @@ def conversation_chain(
     token_expired,
 ):
     try:
+        llm = openAIChatClient
+
+        def summarize_messages(chain_input):
+            stored_messages = chat_history.messages
+            if len(stored_messages) == 0:
+                return False
+            summarization_prompt = ChatPromptTemplate.from_messages(
+                [
+                    MessagesPlaceholder(variable_name="messages"),
+                    (
+                        "user",
+                        "Distill the above chat messages into a single summary message. Include as many specific details as you can.",
+                    ),
+                ]
+            )
+            summarization_chain = summarization_prompt | llm
+            summary_message = summarization_chain.invoke({"messages": stored_messages})
+            chat_history.clear()
+            chat_history.add_message(summary_message)
+            return True
 
         retriever_filter = None
         fetched_missing_pdfs = fetch_missing_pdfs_from_firestore(
@@ -355,11 +354,6 @@ def conversation_chain(
         if answer:
             chat_history.add_user_message(user_question)
             chat_history.add_ai_message(answer)
-
-            # if session_id not in global_chat_history:
-            #     global_chat_history[session_id] = ChatMessageHistory()
-            # global_chat_history[session_id].add_user_message(user_question)
-            # global_chat_history[session_id].add_ai_message(answer)
 
         return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
