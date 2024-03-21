@@ -26,7 +26,6 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.output_parsers import StrOutputParser
 from tavily import TavilyClient
-from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableBranch
 from langchain.memory import ChatMessageHistory
@@ -39,7 +38,7 @@ logging.basicConfig(filename="conversation.log", level=logging.DEBUG)
 
 load_dotenv()
 tavily_store = {}
-global_chat_history = {}
+chat_history = ChatMessageHistory()
 openAIClient = OpenAI()
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
@@ -61,6 +60,9 @@ openAIChatClient = ChatOpenAI(
     temperature=0,
     model="gpt-3.5-turbo-0125",
 )
+
+
+llm = openAIChatClient
 
 domains = [
     "https://www.nice.org.uk/guidance",
@@ -213,6 +215,26 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
         return {"error": str(e)}
 
 
+def summarize_messages(chain_input):
+    stored_messages = chat_history.messages
+    if len(stored_messages) == 0:
+        return False
+    summarization_prompt = ChatPromptTemplate.from_messages(
+        [
+            MessagesPlaceholder(variable_name="messages"),
+            (
+                "user",
+                "Distill the above chat messages into a single summary message. Include as many specific details as you can.",
+            ),
+        ]
+    )
+    summarization_chain = summarization_prompt | llm
+    summary_message = summarization_chain.invoke({"messages": stored_messages})
+    chat_history.clear()
+    chat_history.add_message(summary_message)
+    return True
+
+
 def conversation_chain(
     user_question,
     selected_pdf,
@@ -223,11 +245,7 @@ def conversation_chain(
     token_expired,
 ):
     try:
-        global global_chat_history
 
-        logging.debug(">>>>>Chat history before retrieval: %s", global_chat_history)
-
-        llm = openAIChatClient
         retriever_filter = None
         fetched_missing_pdfs = fetch_missing_pdfs_from_firestore(
             cluster, session_id, token_expired
@@ -293,18 +311,22 @@ def conversation_chain(
             answer=document_chain,
         )
 
-        response = conversational_retrieval_chain.invoke(
-            {
-                "input": user_question,
-                "messages": global_chat_history.get(
-                    session_id, ChatMessageHistory()
-                ).messages,
-            }
+        chain_with_message_history = RunnableWithMessageHistory(
+            conversational_retrieval_chain,
+            lambda session_id: chat_history,
+            input_messages_key="input",
+            history_messages_key="messages",
         )
 
-        # Log the chat history after accessing it
-        logging.debug(">>>>>Chat history after retrieval: %s", global_chat_history)
-        logging.debug(">>>>>session id: %s", session_id)
+        chain_with_summarization = (
+            RunnablePassthrough.assign(messages_summarized=summarize_messages)
+            | chain_with_message_history
+        )
+
+        response = chain_with_summarization.invoke(
+            {"input": user_question},
+            {"configurable": {"session_id": session_id}},
+        )
 
         pdf_dict = {}
 
@@ -331,10 +353,13 @@ def conversation_chain(
 
         answer = response["answer"]
         if answer:
-            if session_id not in global_chat_history:
-                global_chat_history[session_id] = ChatMessageHistory()
-            global_chat_history[session_id].add_user_message(user_question)
-            global_chat_history[session_id].add_ai_message(answer)
+            chat_history.add_user_message(user_question)
+            chat_history.add_ai_message(answer)
+
+            # if session_id not in global_chat_history:
+            #     global_chat_history[session_id] = ChatMessageHistory()
+            # global_chat_history[session_id].add_user_message(user_question)
+            # global_chat_history[session_id].add_ai_message(answer)
 
         return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
