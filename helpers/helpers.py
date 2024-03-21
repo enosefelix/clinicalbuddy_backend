@@ -31,6 +31,11 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableBranch
 from langchain.memory import ChatMessageHistory
 
+import logging
+
+# Configure logging
+logging.basicConfig(filename="conversation.log", level=logging.DEBUG)
+
 
 load_dotenv()
 tavily_store = {}
@@ -208,8 +213,6 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
         return {"error": str(e)}
 
 
-
-
 def conversation_chain(
     user_question,
     selected_pdf,
@@ -220,7 +223,9 @@ def conversation_chain(
     token_expired,
 ):
     try:
-        global global_chat_history  
+        global global_chat_history
+
+        logging.debug("Chat history before retrieval: %s", global_chat_history)
 
         llm = openAIChatClient
         retriever_filter = None
@@ -288,16 +293,17 @@ def conversation_chain(
             answer=document_chain,
         )
 
-
-        print("chat hx>>>", global_chat_history)
-
-
         response = conversational_retrieval_chain.invoke(
             {
                 "input": user_question,
-                "messages": global_chat_history.get(session_id, ChatMessageHistory()).messages,
+                "messages": global_chat_history.get(
+                    session_id, ChatMessageHistory()
+                ).messages,
             }
         )
+
+        # Log the chat history after accessing it
+        logging.debug("Chat history after retrieval: %s", global_chat_history)
 
         pdf_dict = {}
 
@@ -333,7 +339,6 @@ def conversation_chain(
 
     except Exception as e:
         return {"status": 400, "error": str(e)}
-
 
 
 def transcribe_audio(file_bytes, file_type, content_type):
@@ -438,4 +443,3 @@ def tavily_search(final_question):
         return response
     except Exception as e:
         return f"Error occurred: please try again later"
-    
