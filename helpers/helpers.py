@@ -14,13 +14,10 @@ from qdrant.qdrant import (
     qdrant_vector_embedding,
 )
 from firestore.firestore import fetch_missing_pdfs_from_firestore
-
 from helpers.constants import UserClusters, MED_PROMPTS
 from openai import OpenAI
 from langchain_openai import ChatOpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.adapters.openai import convert_openai_messages
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -30,6 +27,8 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.output_parsers import StrOutputParser
 from tavily import TavilyClient
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough, RunnableBranch
 
 
 load_dotenv()
@@ -79,8 +78,6 @@ domains = [
     "https://pubmed.ncbi.nlm.nih.gov/",
     "https://www.cochranelibrary.com/",
 ]
-
-
 
 
 def get_pdf_data(pdf_docs):
@@ -211,13 +208,21 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
 
 
 def conversation_chain(
-    user_question, selected_pdf, qdrant_vector_embedding, cluster, user_name, session_id, token_expired
+    user_question,
+    selected_pdf,
+    qdrant_vector_embedding,
+    cluster,
+    user_name,
+    session_id,
+    token_expired,
 ):
     try:
 
         llm = openAIChatClient
         retriever_filter = None
-        fetched_missing_pdfs = fetch_missing_pdfs_from_firestore(cluster, session_id,token_expired)
+        fetched_missing_pdfs = fetch_missing_pdfs_from_firestore(
+            cluster, session_id, token_expired
+        )
 
         is_admin = (
             user_name == SUPER_ADMIN_USERNAME
@@ -242,38 +247,47 @@ def conversation_chain(
                 search_kwargs={"k": 10}
             )
 
-        user_prompt = ChatPromptTemplate.from_messages(
+        query_transform_prompt = ChatPromptTemplate.from_messages(
             [
-                MessagesPlaceholder(variable_name="chat_history"),
+                MessagesPlaceholder(variable_name="messages"),
                 ("user", "{input}"),
                 (
                     "user",
-                    "Your responsibility as an AI assistant is to analyze each new question in light of the ones previously posed, ensuring a clear understanding of the topic's development without altering the question's original intent. If the initial question is 'What is pemphigus vulgaris?' and the next inquiry evolves into 'What are the risk factors for developing this condition?', your task is to reflect this precise progression in your query formulation. Your objective is to construct a question that remains faithful to the user's latest question, maintaining the exact thematic focus and context. This approach demands that you preserve the essence and specific subject matter of the user's inquiry, resulting in a question like 'What are the risk factors for developing pemphigus vulgaris?'. It is crucial to ensure that your responses accurately mirror the user's questions, demonstrating a keen understanding of the topic's continuity or shifts without veering from the original question's scope.",
+                    "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation. Only respond with the query, nothing else.",
                 ),
             ]
         )
 
-        system_prompt = ChatPromptTemplate.from_messages(
+        question_answering_prompt = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
-                    "As an AI-assisted medical doctor, your objective is to provide responses that mirror the precision and professionalism of medical communication. Utilize use MLA format and Markdown for clarity and organization, ensuring your answers to user inquiries are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Before responding, meticulously follow these steps to ensure accuracy and relevance: 1.Identify Necessary Information: Consider what medical facts or details are crucial for addressing the user's question based on the provided context. 2. Examine the Question Details: Scrutinize the context for specifics related to the user's inquiry.3. Assess Fact Availability: Determine if the context includes all necessary information to formulate a comprehensive answer. 4.Formulate Your Response: Based on the available facts, contemplate the most accurate and informative answer. If the context lacks sufficient information, respond with 'I don't know' rather than speculating.5.Provide the Answer: Answer the question with detailed explanations, listing answers where appropriate for enhanced readability.Remember, your responses should not only convey medical knowledge but also uphold the professionalism expected in medical dialogues.{context}",
+                    "Answer the user's questions based on the below context. If the context doesn't contain any relevant information to the question, don't make something up and just say 'I don't know'. Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Before responding, meticulously follow these steps to ensure accuracy and relevance: 1.Identify Necessary Information: Consider what medical facts or details are crucial for addressing the user's question based on the provided context. 2. Examine the Question Details: Scrutinize the context for specifics related to the user's inquiry.3. Assess Fact Availability: Determine if the context includes all necessary information to formulate a comprehensive answer. 4.Formulate Your Response: Based on the available facts, contemplate the most accurate and informative answer. If the context lacks sufficient information, respond with 'I don't know' rather than speculating.5.Provide the Answer: Answer the question with detailed explanations, listing answers where appropriate for enhanced readability.{context}",
                 ),
-                MessagesPlaceholder(variable_name="chat_history"),
+                MessagesPlaceholder(variable_name="messages"),
                 ("user", "{input}"),
             ]
         )
 
-        retriever_chain = create_history_aware_retriever(
-            llm, retriever_filter, user_prompt
-        )
-        stuff_documents_chain = create_stuff_documents_chain(llm, system_prompt)
-        chain = create_retrieval_chain(retriever_chain, stuff_documents_chain)
+        query_transforming_retriever_chain = RunnableBranch(
+            (
+                lambda x: len(x.get("messages", [])) == 1,
+                (lambda x: x["messages"][-1].content) | retriever_filter,
+            ),
+            query_transform_prompt | llm | StrOutputParser() | retriever_filter,
+        ).with_config(run_name="chat_retriever_chain")
 
-        response = chain.invoke(
+        document_chain = create_stuff_documents_chain(llm, question_answering_prompt)
+        conversational_retrieval_chain = RunnablePassthrough.assign(
+            context=query_transforming_retriever_chain,
+        ).assign(
+            answer=document_chain,
+        )
+
+        response = conversational_retrieval_chain.invoke(
             {
-                "chat_history": chat_history.get(session_id, []),
                 "input": user_question,
+                "messages": chat_history.get(session_id, []),
             }
         )
 
@@ -299,8 +313,8 @@ def conversation_chain(
             pdf_dict[pdf_name]["pages"].append(page_num)
 
         pdfs_and_pages = list(pdf_dict.values())
-        answer = response["answer"]
 
+        answer = response["answer"]
         if answer:
             if session_id not in chat_history:
                 chat_history[session_id] = []
@@ -319,10 +333,7 @@ def transcribe_audio(file_bytes, file_type, content_type):
     file_buffer = io.BytesIO(file_bytes)
     file_info = ("temp." + file_type, file_buffer, content_type)
     transcript = openAIClient.audio.translations.create(
-        model="whisper-1",
-        file=file_info,
-        response_format="text",
-        prompt = MED_PROMPTS
+        model="whisper-1", file=file_info, response_format="text", prompt=MED_PROMPTS
     )
 
     corrected_transcript = openAIClient.chat.completions.create(
