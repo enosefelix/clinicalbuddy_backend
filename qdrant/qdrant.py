@@ -55,8 +55,8 @@ def create_or_get_collection(
         collection = qd_client.create_collection(
             collection_name=QDRANT_COLLECTION_NAME,
             vectors_config=vectors_config,
-            optimizers_config=optimizers_config,
-            quantization_config=quantization_config,
+            # optimizers_config=optimizers_config,
+            # quantization_config=quantization_config,
         )
 
         return collection
