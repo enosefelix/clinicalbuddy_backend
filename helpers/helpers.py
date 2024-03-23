@@ -14,20 +14,29 @@ from qdrant.qdrant import (
     qdrant_vector_embedding,
 )
 from firestore.firestore import fetch_missing_pdfs_from_firestore
-from helpers.constants import UserClusters, MED_PROMPTS
+from helpers.constants import UserClusters, MED_PROMPTS, LOCAL_FRONT_END_URL
 from openai import OpenAI
 from langchain_openai import ChatOpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.adapters.openai import convert_openai_messages
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    MessagesPlaceholder,
+    PromptTemplate,
+)
+
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.output_parsers import StrOutputParser
 from tavily import TavilyClient
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough, RunnableBranch
+from langchain_core.runnables import (
+    RunnablePassthrough,
+    RunnableBranch,
+    RunnableParallel,
+)
 from langchain.memory import ChatMessageHistory
 
 import logging
@@ -214,6 +223,88 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
         return {"error": str(e)}
 
 
+def conversation_without_history(user_question, llm, retriever_filter):
+    template = """Answer the user's questions based on the below context. If the context doesn't contain any relevant information to the question, don't make something up and just say 'I don't know'. Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing answers where appropriate for enhanced readability: {context} 
+    Question: {question}"""
+
+    custom_rag_prompt = PromptTemplate.from_template(template)
+
+    def format_docs(docs):
+        return "\n\n".join(doc.page_content for doc in docs)
+
+    rag_chain_from_docs = (
+        RunnablePassthrough.assign(context=(lambda x: format_docs(x["context"])))
+        | custom_rag_prompt
+        | llm
+        | StrOutputParser()
+    )
+
+    rag_chain_with_source = RunnableParallel(
+        {"context": retriever_filter, "question": RunnablePassthrough()}
+    ).assign(answer=rag_chain_from_docs)
+
+    response = rag_chain_with_source.invoke(user_question)
+    return response
+
+
+def conversation_with_history(
+    user_question,
+    session_id,
+    chat_history,
+    llm,
+    retriever_filter,
+):
+    query_transform_prompt = ChatPromptTemplate.from_messages(
+        [
+            MessagesPlaceholder(variable_name="messages"),
+            ("user", "{input}"),
+            (
+                "user",
+                "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation. Only respond with the query, nothing else.",
+            ),
+        ]
+    )
+
+    question_answering_prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "Answer the user's questions based on the below context. If the context doesn't contain any relevant information to the question, don't make something up and just say 'I don't know'. Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing answers where appropriate for enhanced readability: {context}",
+            ),
+            MessagesPlaceholder(variable_name="messages"),
+            ("user", "{input}"),
+        ]
+    )
+
+    query_transforming_retriever_chain = RunnableBranch(
+        (
+            lambda x: len(x.get("messages", [])) == 1,
+            (lambda x: x["messages"][-1].content) | retriever_filter,
+        ),
+        query_transform_prompt | llm | StrOutputParser() | retriever_filter,
+    ).with_config(run_name="chat_retriever_chain")
+
+    document_chain = create_stuff_documents_chain(llm, question_answering_prompt)
+    conversational_retrieval_chain = RunnablePassthrough.assign(
+        context=query_transforming_retriever_chain,
+    ).assign(
+        answer=document_chain,
+    )
+
+    chain_with_message_history = RunnableWithMessageHistory(
+        conversational_retrieval_chain,
+        lambda session_id: chat_history,
+        input_messages_key="input",
+        history_messages_key="messages",
+    )
+
+    response = chain_with_message_history.invoke(
+        {"input": user_question},
+        {"configurable": {"session_id": session_id}},
+    )
+    return response
+
+
 def conversation_chain(
     user_question,
     selected_pdf,
@@ -222,28 +313,10 @@ def conversation_chain(
     user_name,
     session_id,
     token_expired,
+    request_origin,
 ):
     try:
         llm = openAIChatClient
-
-        def summarize_messages(chain_input):
-            stored_messages = chat_history.messages
-            if len(stored_messages) == 0:
-                return False
-            summarization_prompt = ChatPromptTemplate.from_messages(
-                [
-                    MessagesPlaceholder(variable_name="messages"),
-                    (
-                        "user",
-                        "Distill the above chat messages into a single summary message. Include as many specific details as you can.",
-                    ),
-                ]
-            )
-            summarization_chain = summarization_prompt | llm
-            summary_message = summarization_chain.invoke({"messages": stored_messages})
-            chat_history.clear()
-            chat_history.add_message(summary_message)
-            return True
 
         retriever_filter = None
         fetched_missing_pdfs = fetch_missing_pdfs_from_firestore(
@@ -273,58 +346,18 @@ def conversation_chain(
                 search_kwargs={"k": 10}
             )
 
-        query_transform_prompt = ChatPromptTemplate.from_messages(
-            [
-                MessagesPlaceholder(variable_name="messages"),
-                ("user", "{input}"),
-                (
-                    "user",
-                    "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation. Only respond with the query, nothing else.",
-                ),
-            ]
-        )
+        response = conversation_without_history(user_question, llm, retriever_filter)
 
-        question_answering_prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    "Answer the user's questions based on the below context. If the context doesn't contain any relevant information to the question, don't make something up and just say 'I don't know'. Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Before responding, meticulously follow these steps to ensure accuracy and relevance: 1.Identify Necessary Information: Consider what medical facts or details are crucial for addressing the user's question based on the provided context. 2. Examine the Question Details: Scrutinize the context for specifics related to the user's inquiry.3. Assess Fact Availability: Determine if the context includes all necessary information to formulate a comprehensive answer. 4.Formulate Your Response: Based on the available facts, contemplate the most accurate and informative answer. If the context lacks sufficient information, respond with 'I don't know' rather than speculating.5.Provide the Answer: Answer the question with detailed explanations, listing answers where appropriate for enhanced readability.{context}",
-                ),
-                MessagesPlaceholder(variable_name="messages"),
-                ("user", "{input}"),
-            ]
-        )
-
-        query_transforming_retriever_chain = RunnableBranch(
-            (
-                lambda x: len(x.get("messages", [])) == 1,
-                (lambda x: x["messages"][-1].content) | retriever_filter,
-            ),
-            query_transform_prompt | llm | StrOutputParser() | retriever_filter,
-        ).with_config(run_name="chat_retriever_chain")
-
-        document_chain = create_stuff_documents_chain(llm, question_answering_prompt)
-        conversational_retrieval_chain = RunnablePassthrough.assign(
-            context=query_transforming_retriever_chain,
-        ).assign(
-            answer=document_chain,
-        )
-
-        chain_with_message_history = RunnableWithMessageHistory(
-            conversational_retrieval_chain,
-            lambda session_id: chat_history,
-            input_messages_key="input",
-            history_messages_key="messages",
-        )
-
-        chain_with_summarization = (
-            RunnablePassthrough.assign(messages_summarized=summarize_messages)
-            | chain_with_message_history
-        )
-
-        response = chain_with_summarization.invoke(
-            {"input": user_question},
-            {"configurable": {"session_id": session_id}},
+        response = (
+            conversation_with_history(
+                user_question,
+                session_id,
+                chat_history,
+                llm,
+                retriever_filter,
+            )
+            if request_origin == LOCAL_FRONT_END_URL
+            else conversation_without_history(user_question, llm, retriever_filter)
         )
 
         pdf_dict = {}
@@ -351,7 +384,7 @@ def conversation_chain(
         pdfs_and_pages = list(pdf_dict.values())
 
         answer = response["answer"]
-        if answer:
+        if answer and request_origin == LOCAL_FRONT_END_URL:
             chat_history.add_user_message(user_question)
             chat_history.add_ai_message(answer)
 

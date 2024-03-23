@@ -16,8 +16,23 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 qd_client = qdrant_client.QdrantClient(QDRANT_HOST, api_key=QDRANT_API_KEY)
 
 # create collection
-collection_config = qdrant_client.http.models.VectorParams(
+vectors_config = qdrant_client.http.models.VectorParams(
     size=1536, distance=qdrant_client.http.models.Distance.COSINE
+)
+
+
+optimizers_config = (
+    qdrant_client.http.models.OptimizersConfigDiff(
+        default_segment_number=16, memmap_threshold=20000
+    ),
+)
+
+
+quantization_config = qdrant_client.http.models.ScalarQuantization(
+    scalar=qdrant_client.http.models.ScalarQuantizationConfig(
+        type=qdrant_client.http.models.ScalarType.INT8,
+        always_ram=True,
+    ),
 )
 
 
@@ -33,13 +48,15 @@ qdrant_vector_embedding = Qdrant(
 def create_or_get_collection(
     qd_client,
     QDRANT_COLLECTION_NAME,
-    collection_config,
+    vectors_config,
 ):
     try:
         # Specify vector parameters when creating the collection
         collection = qd_client.create_collection(
             collection_name=QDRANT_COLLECTION_NAME,
-            vectors_config=collection_config,
+            vectors_config=vectors_config,
+            optimizers_config=optimizers_config,
+            quantization_config=quantization_config,
         )
 
         return collection

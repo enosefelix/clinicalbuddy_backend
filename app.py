@@ -161,6 +161,7 @@ def get_conversation_chain():
     cluster = data.get("cluster")
     user_name = get_jwt_identity()
     session_id = data.get("session_id")
+    request_origin = request.headers.get("Origin")
 
     try:
         token_expired = check_token_expired(user_name, session_id, session_obj)
@@ -175,6 +176,7 @@ def get_conversation_chain():
             user_name,
             session_id,
             token_expired,
+            request_origin,
         )
         response = future_chain_response.result()
         return jsonify(response), response.get("status", 200)
