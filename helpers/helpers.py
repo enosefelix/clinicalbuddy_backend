@@ -224,7 +224,7 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
 
 
 def conversation_without_history(user_question, llm, retriever_filter):
-    template = """Answer the user's questions based on the below context. If the context doesn't contain any relevant information to the question, don't make something up and just say 'I don't know'. Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing answers where appropriate for enhanced readability: {context} 
+    template = """Answer the user's questions based on the below context. If the context doesn't contain any relevant information to the question, don't make something up and just say 'I don't know'. Utilize Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting  answers where appropriate for enhanced readability: {context} 
     Question: {question}"""
 
     custom_rag_prompt = PromptTemplate.from_template(template)
@@ -269,7 +269,7 @@ def conversation_with_history(
         [
             (
                 "system",
-                "Answer the user's questions based on the below context. If the context doesn't contain any relevant information to the question, don't make something up and just say 'I don't know'. Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing answers where appropriate for enhanced readability: {context}",
+                "Answer the user's questions based on the below context. If the context doesn't contain any relevant information to the question, don't make something up and just say 'I don't know'. Utilize  Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability: {context}",
             ),
             MessagesPlaceholder(variable_name="messages"),
             ("user", "{input}"),
