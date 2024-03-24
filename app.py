@@ -194,7 +194,6 @@ def get_bookmarks():
     verify_jwt_in_request()
     user_name = get_jwt_identity()
     response = fetch_bookmarks_from_firestore(user_name)
-    # create_or_get_collection()
     if len(response) > 0:
         return jsonify(
             {

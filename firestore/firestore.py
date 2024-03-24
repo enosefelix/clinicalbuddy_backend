@@ -389,11 +389,11 @@ def fetch_missing_pdfs_from_firestore(cluster, session_id, token_expired):
     global cached_missing_pdfs
 
     try:
-        # if token_expired:
-        #     cached_missing_pdfs = {}
+        if token_expired:
+            cached_missing_pdfs = {}
 
-        # if session_id in cached_missing_pdfs:
-        #     return cached_missing_pdfs[session_id]
+        if session_id in cached_missing_pdfs:
+            return cached_missing_pdfs[session_id]
 
         doc_ref = db.collection(FIRESTORE_COLLECTION_NAME).document(
             FIRESTORE_DOCUMENT_NAME
@@ -412,7 +412,7 @@ def fetch_missing_pdfs_from_firestore(cluster, session_id, token_expired):
                         item for item in missing_pdfs if item.get("cluster") == cluster
                     ]
 
-                           # Remove duplicate pdf_names
+                # Remove duplicate pdf_names
                 missing_pdfs = remove_duplicate_pdfs(missing_pdfs)
 
                 # Cache the result
