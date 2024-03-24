@@ -21,21 +21,6 @@ vectors_config = qdrant_client.http.models.VectorParams(
 )
 
 
-optimizers_config = (
-    qdrant_client.http.models.OptimizersConfigDiff(
-        default_segment_number=16, memmap_threshold=20000
-    ),
-)
-
-
-quantization_config = qdrant_client.http.models.ScalarQuantization(
-    scalar=qdrant_client.http.models.ScalarQuantizationConfig(
-        type=qdrant_client.http.models.ScalarType.INT8,
-        always_ram=True,
-    ),
-)
-
-
 # Create Qdrant vector embedding
 embedding = OpenAIEmbeddings()
 qdrant_vector_embedding = Qdrant(
@@ -45,18 +30,12 @@ qdrant_vector_embedding = Qdrant(
 )
 
 
-def create_or_get_collection(
-    qd_client,
-    QDRANT_COLLECTION_NAME,
-    vectors_config,
-):
+def create_or_get_collection():
     try:
         # Specify vector parameters when creating the collection
         collection = qd_client.create_collection(
             collection_name=QDRANT_COLLECTION_NAME,
-            vectors_config=vectors_config,
-            # optimizers_config=optimizers_config,
-            # quantization_config=quantization_config,
+            vectors_config=vectors_config
         )
 
         return collection

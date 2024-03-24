@@ -63,6 +63,7 @@ def check_token_expired(user_name, session_id, session_obj):
 
 
 from qdrant.qdrant import (
+    create_or_get_collection,
     qdrant_vector_embedding,
     delete_selected_pdf_from_qdrant,
     delete_all_pdfs_by_user_from_qdrant,
@@ -91,6 +92,7 @@ from helpers.helpers import (
     transcribe_audio,
     tavily_search,
     question_with_memory,
+    delete_pdf_from_s3bucket
 )
 
 
@@ -192,6 +194,7 @@ def get_bookmarks():
     verify_jwt_in_request()
     user_name = get_jwt_identity()
     response = fetch_bookmarks_from_firestore(user_name)
+    # create_or_get_collection()
     if len(response) > 0:
         return jsonify(
             {
@@ -288,6 +291,8 @@ def get_missing_pdfs():
     user_name = get_jwt_identity()
     token_expired = check_token_expired(user_name, session_id, session_obj)
 
+  
+
     response = fetch_missing_pdfs_from_firestore(cluster, session_id, token_expired)
     if len(response) > 0:
         return jsonify(
@@ -352,6 +357,16 @@ def delete_missing_pdf():
         return jsonify({"status": 400})
 
 
+def remove_file_key(pdf_data):
+    # Copy the original dictionary to avoid modifying it directly
+    new_pdf_data = pdf_data.copy()
+    # Check if "file" key exists in the dictionary
+    if "file" in new_pdf_data:
+        # Remove the "file" key
+        del new_pdf_data["file"]
+    return new_pdf_data
+
+
 @jwt_required()
 @app.route("/api/upload_pdfs", methods=["POST", "OPTIONS"])
 @cross_origin(origins=FRONT_END_URLS)
@@ -408,7 +423,6 @@ def upload_pdf():
     except Exception as e:
         return jsonify({"status": 500, "message": "Internal Server Error"})
 
-
 @jwt_required()
 @app.route("/api/delete_multiple_pdfs", methods=["DELETE", "OPTIONS"])
 @cross_origin(origins=FRONT_END_URLS)
@@ -419,6 +433,7 @@ def delete_multiple_pdfs():
     selected_pdfs = data.get("selected_pdfs")
     response = delete_multiple_pdfs_from_firestore(selected_pdfs)
     delete_all_selected_pdf_array_from_qdrant(selected_pdfs, user_name)
+    delete_pdf_from_s3bucket(selected_pdfs)
 
     if response:
         return response

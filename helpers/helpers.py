@@ -10,9 +10,7 @@ from langchain.text_splitter import (
     RecursiveCharacterTextSplitter,
 )
 from flask import jsonify
-from qdrant.qdrant import (
-    qdrant_vector_embedding,
-)
+from qdrant.qdrant import qdrant_vector_embedding, create_or_get_collection
 from firestore.firestore import fetch_missing_pdfs_from_firestore
 from helpers.constants import UserClusters, MED_PROMPTS, LOCAL_FRONT_END_URL
 from openai import OpenAI
@@ -110,7 +108,6 @@ def get_pdf_data(pdf_docs):
             )
 
     return pdf_data
-
 
 def map_pdf(pdf_data):
     pdf_mapping = []
@@ -221,7 +218,7 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
 
     except Exception as e:
         return {"error": str(e)}
-
+    
 
 def conversation_without_history(user_question, llm, retriever_filter):
     template = """Answer the user's questions based on the below context. If the context doesn't contain any relevant information to the question, don't make something up and just say 'I don't know'. Utilize Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting  answers where appropriate for enhanced readability: {context} 
@@ -348,17 +345,17 @@ def conversation_chain(
 
         response = conversation_without_history(user_question, llm, retriever_filter)
 
-        response = (
-            conversation_with_history(
-                user_question,
-                session_id,
-                chat_history,
-                llm,
-                retriever_filter,
-            )
-            if request_origin == LOCAL_FRONT_END_URL
-            else conversation_without_history(user_question, llm, retriever_filter)
-        )
+        # response = (
+        #     conversation_with_history(
+        #         user_question,
+        #         session_id,
+        #         chat_history,
+        #         llm,
+        #         retriever_filter,
+        #     )
+        #     if request_origin == LOCAL_FRONT_END_URL
+        #     else conversation_without_history(user_question, llm, retriever_filter)
+        # )
 
         pdf_dict = {}
 
