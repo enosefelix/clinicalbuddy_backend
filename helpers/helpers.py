@@ -2,6 +2,8 @@ import os
 import io
 import uuid
 import boto3
+import time
+from datetime import datetime
 import hashlib
 from urllib.parse import urlparse
 from dotenv import load_dotenv
@@ -10,7 +12,7 @@ from langchain.text_splitter import (
     RecursiveCharacterTextSplitter,
 )
 from flask import jsonify
-from qdrant.qdrant import qdrant_vector_embedding, create_or_get_collection
+from qdrant.qdrant import qdrant_vector_embedding
 from firestore.firestore import fetch_missing_pdfs_from_firestore
 from helpers.constants import UserClusters, MED_PROMPTS, LOCAL_FRONT_END_URL
 from openai import OpenAI
@@ -29,7 +31,6 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.output_parsers import StrOutputParser
 from tavily import TavilyClient
-from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import (
     RunnablePassthrough,
     RunnableBranch,
@@ -108,6 +109,7 @@ def get_pdf_data(pdf_docs):
             )
 
     return pdf_data
+
 
 def map_pdf(pdf_data):
     pdf_mapping = []
@@ -218,10 +220,84 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
 
     except Exception as e:
         return {"error": str(e)}
-    
 
-def conversation_without_history(user_question, llm, retriever_filter):
-    template = """Answer the user's questions based on the below context. If the context lacks sufficient information, respond with 'I don't know' rather than speculating. Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. Before responding, meticulously follow these steps to ensure accuracy and relevance: 1.Identify Necessary Information: Consider what medical facts or details are crucial for addressing the user's question based on the provided context. 2. Examine the Question Details: Scrutinize the context for specifics related to the user's inquiry.3. Assess Fact Availability: Determine if the context includes all necessary information to formulate a comprehensive answer. 4.Formulate Your Response: Based on the available facts, contemplate the most accurate and informative answer..5.Provide the Answer: .{context} 
+
+def open_ai_conversation_without_history(
+    user_question, retriever_filter, fetched_missing_pdfs
+):
+    def format_docs(docs):
+        return "\n\n".join(doc.page_content for doc in docs)
+
+    filter_response = retriever_filter.invoke(user_question)
+
+    pdf_dict = {}
+
+    for doc in filter_response:
+        pdf_name = doc.metadata.get("source")
+        page_num = doc.metadata.get("page_num")
+        if pdf_name not in pdf_dict:
+            pdf_url = next(
+                (
+                    pdf_info["pdf_url"]
+                    for pdf_info in fetched_missing_pdfs
+                    if pdf_info["pdf_name"] == pdf_name
+                ),
+                None,
+            )
+            pdf_dict[pdf_name] = {
+                "pdf_name": pdf_name,
+                "pdf_url": pdf_url,
+                "pages": [],
+            }
+        pdf_dict[pdf_name]["pages"].append(page_num)
+
+    pdfs_and_pages = list(pdf_dict.values())
+
+    formatted_response = format_docs(filter_response)
+
+    query = f"""Use the context below to answer the subsequent question. If the answer cannot be found, write "I don't know."
+
+    Context:
+    \"\"\"
+    {formatted_response}
+    \"\"\"
+
+    Question: {user_question}"""
+
+    start_time = time.time()
+    # print("Start time:", datetime.fromtimestamp(start_time).strftime("%I:%M %p"))
+
+    response = openAIClient.chat.completions.create(
+        messages=[
+            {
+                "role": "system",
+                "content": " Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability",
+            },
+            {"role": "user", "content": query},
+        ],
+        model="gpt-3.5-turbo-1106",
+        temperature=0,
+        seed=123,
+    )
+
+    final_response = response.choices[0].message.content
+    # print("Filter response:", final_response)
+
+    # Stop the timer
+    end_time = time.time()
+    # print("End time:", datetime.fromtimestamp(end_time).strftime("%I:%M %p"))
+    # Calculate the elapsed time
+
+    elapsed_time = end_time - start_time
+    # print("Elapsed time: {:.2f} seconds".format(elapsed_time))
+
+    return {"answer": final_response, "pdfs_and_pages": pdfs_and_pages, "status": 200}
+
+
+def langchain_conversation_without_history(
+    user_question, retriever_filter, fetched_missing_pdfs
+):
+    template = """Answer the user's questions based on the below context. If the context lacks sufficient information, respond with 'I don't know' rather than speculating. Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. {context} 
     Question: {question}"""
 
     custom_rag_prompt = PromptTemplate.from_template(template)
@@ -232,7 +308,7 @@ def conversation_without_history(user_question, llm, retriever_filter):
     rag_chain_from_docs = (
         RunnablePassthrough.assign(context=(lambda x: format_docs(x["context"])))
         | custom_rag_prompt
-        | llm
+        | openAIChatClient
         | StrOutputParser()
     )
 
@@ -240,16 +316,51 @@ def conversation_without_history(user_question, llm, retriever_filter):
         {"context": retriever_filter, "question": RunnablePassthrough()}
     ).assign(answer=rag_chain_from_docs)
 
+    start_time = time.time()
+    # print("Start time:", datetime.fromtimestamp(start_time).strftime("%I:%M %p"))
+
     response = rag_chain_with_source.invoke(user_question)
-    return response
+
+    pdf_dict = {}
+
+    for doc in response["context"]:
+        pdf_name = doc.metadata.get("source")
+        page_num = doc.metadata.get("page_num")
+        if pdf_name not in pdf_dict:
+            pdf_url = next(
+                (
+                    pdf_info["pdf_url"]
+                    for pdf_info in fetched_missing_pdfs
+                    if pdf_info["pdf_name"] == pdf_name
+                ),
+                None,
+            )
+            pdf_dict[pdf_name] = {
+                "pdf_name": pdf_name,
+                "pdf_url": pdf_url,
+                "pages": [],
+            }
+        pdf_dict[pdf_name]["pages"].append(page_num)
+
+    pdfs_and_pages = list(pdf_dict.values())
+    answer = response["answer"]
+
+    final_response = answer
+
+    # print("final response:", final_response)
+    # Stop the timer
+    end_time = time.time()
+    # print("End time:", datetime.fromtimestamp(end_time).strftime("%I:%M %p"))
+
+    # Calculate the elapsed time
+    elapsed_time = end_time - start_time
+    # print("Elapsed time: {:.2f} seconds".format(elapsed_time))
+
+    return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
 
-def conversation_with_history(
-    user_question,
-    session_id,
-    chat_history,
-    llm,
-    retriever_filter,
+def langchain_conversation_with_history(
+    user_question, session_id, chat_history, retriever_filter, fetched_missing_pdfs
 ):
     query_transform_prompt = ChatPromptTemplate.from_messages(
         [
@@ -278,10 +389,15 @@ def conversation_with_history(
             lambda x: len(x.get("messages", [])) == 1,
             (lambda x: x["messages"][-1].content) | retriever_filter,
         ),
-        query_transform_prompt | llm | StrOutputParser() | retriever_filter,
+        query_transform_prompt
+        | openAIChatClient
+        | StrOutputParser()
+        | retriever_filter,
     ).with_config(run_name="chat_retriever_chain")
 
-    document_chain = create_stuff_documents_chain(llm, question_answering_prompt)
+    document_chain = create_stuff_documents_chain(
+        openAIChatClient, question_answering_prompt
+    )
     conversational_retrieval_chain = RunnablePassthrough.assign(
         context=query_transforming_retriever_chain,
     ).assign(
@@ -299,7 +415,35 @@ def conversation_with_history(
         {"input": user_question},
         {"configurable": {"session_id": session_id}},
     )
-    return response
+
+    pdf_dict = {}
+
+    for doc in response["context"]:
+        pdf_name = doc.metadata.get("source")
+        page_num = doc.metadata.get("page_num")
+        if pdf_name not in pdf_dict:
+            pdf_url = next(
+                (
+                    pdf_info["pdf_url"]
+                    for pdf_info in fetched_missing_pdfs
+                    if pdf_info["pdf_name"] == pdf_name
+                ),
+                None,
+            )
+            pdf_dict[pdf_name] = {
+                "pdf_name": pdf_name,
+                "pdf_url": pdf_url,
+                "pages": [],
+            }
+        pdf_dict[pdf_name]["pages"].append(page_num)
+
+    pdfs_and_pages = list(pdf_dict.values())
+    answer = response["answer"]
+    if answer:
+        chat_history.add_user_message(user_question)
+        chat_history.add_ai_message(answer)
+
+    return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
 
 def conversation_chain(
@@ -313,7 +457,6 @@ def conversation_chain(
     request_origin,
 ):
     try:
-        llm = openAIChatClient
 
         retriever_filter = None
         fetched_missing_pdfs = fetch_missing_pdfs_from_firestore(
@@ -343,49 +486,25 @@ def conversation_chain(
                 search_kwargs={"k": 10}
             )
 
-        response = conversation_without_history(user_question, llm, retriever_filter)
-
         # response = (
-        #     conversation_with_history(
+        #     langchain_conversation_with_history(
         #         user_question,
         #         session_id,
         #         chat_history,
-        #         llm,
         #         retriever_filter,
+        #         fetched_missing_pdfs,
         #     )
         #     if request_origin == LOCAL_FRONT_END_URL
-        #     else conversation_without_history(user_question, llm, retriever_filter)
+        #     else langchain_conversation_without_history(
+        #         user_question, retriever_filter, fetched_missing_pdfs
+        #     )
         # )
 
-        pdf_dict = {}
+        response = open_ai_conversation_without_history(
+            user_question, retriever_filter, fetched_missing_pdfs
+        )
 
-        for doc in response["context"]:
-            pdf_name = doc.metadata.get("source")
-            page_num = doc.metadata.get("page_num")
-            if pdf_name not in pdf_dict:
-                pdf_url = next(
-                    (
-                        pdf_info["pdf_url"]
-                        for pdf_info in fetched_missing_pdfs
-                        if pdf_info["pdf_name"] == pdf_name
-                    ),
-                    None,
-                )
-                pdf_dict[pdf_name] = {
-                    "pdf_name": pdf_name,
-                    "pdf_url": pdf_url,
-                    "pages": [],
-                }
-            pdf_dict[pdf_name]["pages"].append(page_num)
-
-        pdfs_and_pages = list(pdf_dict.values())
-
-        answer = response["answer"]
-        if answer and request_origin == LOCAL_FRONT_END_URL:
-            chat_history.add_user_message(user_question)
-            chat_history.add_ai_message(answer)
-
-        return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
+        return response
 
     except Exception as e:
         return {"status": 400, "error": str(e)}
