@@ -652,7 +652,7 @@ def tavily_search(final_question):
         tavily_response = client.search(
             query=final_question,
             search_depth="advanced",
-            include_domains=domains,
+            # include_domains=domains,
             max_results=10,
         )["results"]
 

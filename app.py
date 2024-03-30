@@ -104,6 +104,7 @@ def external_search():
         data = request.get_json()
         user_question = data.get("question")
         session_id = data.get("session_id")
+        request_origin = request.headers.get("Origin")
 
         if user_question is None:
             return jsonify({"error": "Question not provided in JSON payload"}), 400
@@ -116,10 +117,13 @@ def external_search():
         if final_question.strip() == "":
             return jsonify({"error": "Final question is empty or None"}), 400
 
-        # tavily_results = tavily_search(final_question)
-        serper_results = serper_search(final_question)
+        results = (
+            tavily_search(final_question)
+            if request_origin == LOCAL_FRONT_END_URL
+            else serper_search(final_question)
+        )
 
-        return jsonify(serper_results)
+        return jsonify(results)
 
     except KeyError:
         return jsonify({"error": "Invalid JSON payload"}), 400
