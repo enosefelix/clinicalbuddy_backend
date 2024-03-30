@@ -39,6 +39,9 @@ from langchain_core.runnables import (
 from langchain.memory import ChatMessageHistory
 
 import logging
+import requests
+import json
+
 
 # Configure logging
 logging.basicConfig(filename="conversation.log", level=logging.DEBUG)
@@ -54,6 +57,7 @@ AWS_S3_BUCKET_NAME = os.getenv("AWS_S3_BUCKET_NAME")
 AWS_REGION = os.getenv("AWS_REGION")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 
 
 s3_client = boto3.client(
@@ -72,10 +76,12 @@ openAIChatClient = ChatOpenAI(
 chat_history = ChatMessageHistory()
 
 domains = [
-    "https://www.nice.org.uk/guidance",
     "https://cks.nice.org.uk/",
+    "https://www.nice.org.uk/guidance",
     "https://dermnetnz.org/",
     "https://www.pcds.org.uk/",
+    "https://pubmed.ncbi.nlm.nih.gov/",
+    "https://www.cochranelibrary.com/",
     "https://www.fsrh.org/standards-and-guidance/",
     "https://patient.info/patientplus",
     "https://www.pcsg.org.uk/",
@@ -90,8 +96,10 @@ domains = [
     "https://litfl.com/",
     "https://www.msdmanuals.com/en-gb/professional",
     "https://www.rightbreathe.com/",
-    "https://pubmed.ncbi.nlm.nih.gov/",
-    "https://www.cochranelibrary.com/",
+    "https://www.nhs.uk/conditions/",
+    "https://www.nhsinform.scot/illnesses-and-conditions",
+    "https://www.nhsinform.scot/self-help-guides",
+    "https://patient.info/",
 ]
 
 
@@ -569,7 +577,7 @@ def question_with_memory(user_question, session_id):
         return f"Error occurred: {str(e)}"
 
 
-def extract_website_name_and_url(data):
+def extract_tavily_search_website_name_and_url(data):
     extracted_data = []
 
     for item in data:
@@ -580,15 +588,75 @@ def extract_website_name_and_url(data):
     return extracted_data
 
 
+def extract_serper_search_website_name_and_url(data):
+    extracted_data = []
+
+    for item in data.get("organic", []):
+        parsed_url = urlparse(item["link"])
+        domain_name = parsed_url.netloc.replace("www.", "")
+        extracted_data.append({"website_name": domain_name, "url": item["link"]})
+
+    return extracted_data
+
+
+def serper_search(final_question):
+    url = "https://google.serper.dev/search"
+    payload = json.dumps(
+        {
+            "q": final_question,
+            "gl": "gb",
+            "type": "search",
+            "location": "United Kingdom",
+            "num": 11,
+            "engine": "google",
+        }
+    )
+    headers = {
+        "X-API-KEY": SERPER_API_KEY,
+        "Content-Type": "application/json",
+    }
+
+    serper_response = requests.request("POST", url, headers=headers, data=payload)
+    serper_data = serper_response.json()
+    references = extract_serper_search_website_name_and_url(serper_data)
+
+    prompt = [
+        {
+            "role": "system",
+            "content": f"You are an AI-assisted medical doctor and research assistant with specialized expertise in medical sciences."
+            f"Your primary function is to synthesize well-structured, critically analyzed, and medically accurate reports based on provided information."
+            f"Your responses should emulate the communication style of a medical professional, incorporating appropriate medical terminology and considerations, and always adhere to the present simple tense for consistency",
+        },
+        {
+            "role": "user",
+            "content": f'Information: """{serper_response}"""\n\n'
+            f"Using the above information, answer the following"
+            f'query: "{final_question}" providing very extensive responses'
+            f"Ensure your response is structured with medical precision, using markdown syntax for clarity and professionalism. Never include references in your response",
+        },
+    ]
+
+    lc_messages = convert_openai_messages(prompt)
+    answer = openAIChatClient.invoke(lc_messages).content
+    response = {
+        "answer": answer,
+        "references": references,
+    }  
+
+    return response
+
+
 def tavily_search(final_question):
     try:
         client = TavilyClient(api_key=TAVILY_API_KEY)
         tavily_response = client.search(
             query=final_question,
             search_depth="advanced",
-            max_results=5,
+            include_domains=domains,
+            max_results=10,
         )["results"]
-        references = extract_website_name_and_url(tavily_response)
+
+        references = extract_tavily_search_website_name_and_url(tavily_response)
         prompt = [
             {
                 "role": "system",

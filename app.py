@@ -91,8 +91,9 @@ from helpers.helpers import (
     upload_pdf_to_s3bucket_and_get_info,
     transcribe_audio,
     tavily_search,
+    serper_search,
     question_with_memory,
-    delete_pdf_from_s3bucket
+    delete_pdf_from_s3bucket,
 )
 
 
@@ -115,9 +116,10 @@ def external_search():
         if final_question.strip() == "":
             return jsonify({"error": "Final question is empty or None"}), 400
 
-        tavily_results = tavily_search(final_question)
+        # tavily_results = tavily_search(final_question)
+        serper_results = serper_search(final_question)
 
-        return jsonify(tavily_results)
+        return jsonify(serper_results)
 
     except KeyError:
         return jsonify({"error": "Invalid JSON payload"}), 400
@@ -290,8 +292,6 @@ def get_missing_pdfs():
     user_name = get_jwt_identity()
     token_expired = check_token_expired(user_name, session_id, session_obj)
 
-  
-
     response = fetch_missing_pdfs_from_firestore(cluster, session_id, token_expired)
     if len(response) > 0:
         return jsonify(
@@ -421,6 +421,7 @@ def upload_pdf():
         )
     except Exception as e:
         return jsonify({"status": 500, "message": "Internal Server Error"})
+
 
 @jwt_required()
 @app.route("/api/delete_multiple_pdfs", methods=["DELETE", "OPTIONS"])
