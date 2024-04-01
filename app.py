@@ -150,8 +150,8 @@ def upload_audio():
         with open(audio_path, "rb") as file:
             file_bytes = file.read()
 
-        file_type = "mp3"
-        content_type = "audio/mp3"
+        file_type = "wav"
+        content_type = "audio/wav"
         transcription = transcribe_audio(file_bytes, file_type, content_type)
         os.remove(audio_path)
 
