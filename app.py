@@ -119,7 +119,7 @@ def external_search():
 
         results = (
             tavily_search(final_question)
-            if request_origin != LOCAL_FRONT_END_URL
+            if request_origin == LOCAL_FRONT_END_URL
             else serper_search(final_question)
         )
 
