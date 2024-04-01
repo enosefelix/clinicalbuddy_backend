@@ -618,6 +618,7 @@ def serper_search(final_question):
 
     serper_response = requests.request("POST", url, headers=headers, data=payload)
     serper_data = serper_response.json()
+    serper_array = serper_data["organic"]
     references = extract_serper_search_website_name_and_url(serper_data)
 
     prompt = [
@@ -629,7 +630,7 @@ def serper_search(final_question):
         },
         {
             "role": "user",
-            "content": f'Information: """{serper_response}"""\n\n'
+            "content": f'Information: """{serper_array}"""\n\n'
             f"Using the above information, answer the following"
             f'query: "{final_question}" providing very extensive responses'
             f"Ensure your response is structured with medical precision, using markdown syntax for clarity and professionalism. Never include references in your response",
@@ -641,7 +642,7 @@ def serper_search(final_question):
     response = {
         "answer": answer,
         "references": references,
-    }  
+    }
 
     return response
 
