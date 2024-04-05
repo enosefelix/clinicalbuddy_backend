@@ -2,6 +2,9 @@ import os
 import io
 import uuid
 import boto3
+import logging
+import requests
+import json
 import time
 from datetime import datetime
 import hashlib
@@ -20,12 +23,17 @@ from langchain_openai import ChatOpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.adapters.openai import convert_openai_messages
-from langchain_core.prompts import (
-    ChatPromptTemplate,
+
+
+from langchain.schema.output_parser import StrOutputParser
+from langchain.prompts import (
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
     MessagesPlaceholder,
+    ChatPromptTemplate,
     PromptTemplate,
 )
-
+from langchain.load import dumps, loads
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
@@ -34,13 +42,7 @@ from tavily import TavilyClient
 from langchain_core.runnables import (
     RunnablePassthrough,
     RunnableBranch,
-    RunnableParallel,
 )
-from langchain.memory import ChatMessageHistory
-
-import logging
-import requests
-import json
 
 
 # Configure logging
@@ -68,7 +70,7 @@ s3_client = boto3.client(
 )
 
 openAIChatClient = ChatOpenAI(
-    temperature=0,
+    temperature=0.0,
     model="gpt-3.5-turbo-0125",
 )
 
@@ -143,6 +145,24 @@ def map_pdf(pdf_data):
                 }
             )
     return pdf_mapping
+
+
+def reciprocal_rank_fusion(results: list[list], k=60):
+    fused_scores = {}
+    for docs in results:
+        # Assumes the docs are returned in sorted order of relevance
+        for rank, doc in enumerate(docs):
+            doc_str = dumps(doc)
+            if doc_str not in fused_scores:
+                fused_scores[doc_str] = 0
+            previous_score = fused_scores[doc_str]
+            fused_scores[doc_str] += 1 / (rank + k)
+
+    reranked_results = [
+        (loads(doc), score)
+        for doc, score in sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
+    ]
+    return reranked_results
 
 
 def delete_pdf_from_s3bucket(pdf_names):
@@ -228,143 +248,6 @@ def upload_pdf_to_qdrant(pdf_files, cluster, category, user_name):
 
     except Exception as e:
         return {"error": str(e)}
-
-
-def open_ai_conversation_without_history(
-    user_question, retriever_filter, fetched_missing_pdfs
-):
-    def format_docs(docs):
-        return "\n\n".join(doc.page_content for doc in docs)
-
-    filter_response = retriever_filter.invoke(user_question)
-
-    pdf_dict = {}
-
-    for doc in filter_response:
-        pdf_name = doc.metadata.get("source")
-        page_num = doc.metadata.get("page_num")
-        if pdf_name not in pdf_dict:
-            pdf_url = next(
-                (
-                    pdf_info["pdf_url"]
-                    for pdf_info in fetched_missing_pdfs
-                    if pdf_info["pdf_name"] == pdf_name
-                ),
-                None,
-            )
-            pdf_dict[pdf_name] = {
-                "pdf_name": pdf_name,
-                "pdf_url": pdf_url,
-                "pages": [],
-            }
-        pdf_dict[pdf_name]["pages"].append(page_num)
-
-    pdfs_and_pages = list(pdf_dict.values())
-
-    formatted_response = format_docs(filter_response)
-
-    query = f"""Use the context below to answer the subsequent question. If the answer cannot be found, write "I don't know."
-
-    Context:
-    \"\"\"
-    {formatted_response}
-    \"\"\"
-
-    Question: {user_question}"""
-
-    start_time = time.time()
-    # print("Start time:", datetime.fromtimestamp(start_time).strftime("%I:%M %p"))
-
-    response = openAIClient.chat.completions.create(
-        messages=[
-            {
-                "role": "system",
-                "content": " Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability",
-            },
-            {"role": "user", "content": query},
-        ],
-        model="gpt-3.5-turbo-1106",
-        temperature=0,
-        seed=123,
-    )
-
-    final_response = response.choices[0].message.content
-    # print("Filter response:", final_response)
-
-    # Stop the timer
-    end_time = time.time()
-    # print("End time:", datetime.fromtimestamp(end_time).strftime("%I:%M %p"))
-    # Calculate the elapsed time
-
-    elapsed_time = end_time - start_time
-    # print("Elapsed time: {:.2f} seconds".format(elapsed_time))
-
-    return {"answer": final_response, "pdfs_and_pages": pdfs_and_pages, "status": 200}
-
-
-def langchain_conversation_without_history(
-    user_question, retriever_filter, fetched_missing_pdfs
-):
-    template = """Answer the user's questions based on the below context. If the context lacks sufficient information, respond with 'I don't know' rather than speculating. Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. {context} 
-    Question: {question}"""
-
-    custom_rag_prompt = PromptTemplate.from_template(template)
-
-    def format_docs(docs):
-        return "\n\n".join(doc.page_content for doc in docs)
-
-    rag_chain_from_docs = (
-        RunnablePassthrough.assign(context=(lambda x: format_docs(x["context"])))
-        | custom_rag_prompt
-        | openAIChatClient
-        | StrOutputParser()
-    )
-
-    rag_chain_with_source = RunnableParallel(
-        {"context": retriever_filter, "question": RunnablePassthrough()}
-    ).assign(answer=rag_chain_from_docs)
-
-    start_time = time.time()
-    # print("Start time:", datetime.fromtimestamp(start_time).strftime("%I:%M %p"))
-
-    response = rag_chain_with_source.invoke(user_question)
-
-    pdf_dict = {}
-
-    for doc in response["context"]:
-        pdf_name = doc.metadata.get("source")
-        page_num = doc.metadata.get("page_num")
-        if pdf_name not in pdf_dict:
-            pdf_url = next(
-                (
-                    pdf_info["pdf_url"]
-                    for pdf_info in fetched_missing_pdfs
-                    if pdf_info["pdf_name"] == pdf_name
-                ),
-                None,
-            )
-            pdf_dict[pdf_name] = {
-                "pdf_name": pdf_name,
-                "pdf_url": pdf_url,
-                "pages": [],
-            }
-        pdf_dict[pdf_name]["pages"].append(page_num)
-
-    pdfs_and_pages = list(pdf_dict.values())
-    answer = response["answer"]
-
-    final_response = answer
-
-    # print("final response:", final_response)
-    # Stop the timer
-    end_time = time.time()
-    # print("End time:", datetime.fromtimestamp(end_time).strftime("%I:%M %p"))
-
-    # Calculate the elapsed time
-    elapsed_time = end_time - start_time
-    # print("Elapsed time: {:.2f} seconds".format(elapsed_time))
-
-    return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
 
 def langchain_conversation_with_history(
@@ -454,6 +337,280 @@ def langchain_conversation_with_history(
     return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
 
+def langchain_conversation_without_history(
+    user_question, retriever_filter, fetched_missing_pdfs
+):
+    # Measure the start time
+    start_time_total = time.time()
+    # print(
+    #     "Start time for the entire process:",
+    #     datetime.fromtimestamp(start_time_total).strftime("%I:%M %p"),
+    # )
+
+    # Measure the start time for retriever chain
+    # start_time_for_retriever = time.time()
+    # print(
+    #     "Start time for retriever:",
+    #     datetime.fromtimestamp(start_time_for_retriever).strftime("%I:%M %p"),
+    # )
+
+    prompt = ChatPromptTemplate(
+        input_variables=["original_query"],
+        messages=[
+            SystemMessagePromptTemplate(
+                prompt=PromptTemplate(
+                    input_variables=[],
+                    template="You are a helpful assistant that generates multiple search queries based on a single input query",
+                )
+            ),
+            HumanMessagePromptTemplate(
+                prompt=PromptTemplate(
+                    input_variables=["original_query"],
+                    template="The user questions are focused on medicine, surgery and related discipline. Your task is to generate multiple search queries related to: {question} \n OUTPUT (4 queries):",
+                )
+            ),
+        ],
+    )
+
+    generate_queries = (
+        prompt | openAIChatClient | StrOutputParser() | (lambda x: x.split("\n"))
+    )
+
+    reranked_retriever_chain = (
+        generate_queries | retriever_filter.map() | reciprocal_rank_fusion
+    )
+
+    reranked_data = reranked_retriever_chain.invoke({"question": user_question})
+
+    # if reranked_data:
+    #     end_time_for_retriever = time.time()
+    #     print(
+    #         "End time for retriever:",
+    #         datetime.fromtimestamp(end_time_for_retriever).strftime("%I:%M %p"),
+    #     )
+    #     elapsed_time_for_retriever = end_time_for_retriever - start_time_for_retriever
+    #     print(
+    #         "Elapsed time for retriever: {:.2f} seconds".format(
+    #             elapsed_time_for_retriever
+    #         )
+    #     )
+
+    template = """Answer the user's questions based on the below context. If the context lacks sufficient information, respond with 'I don't know' rather than speculating. Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. {context}
+    Question: {question}"""
+
+    custom_rag_prompt = ChatPromptTemplate.from_template(template)
+
+    full_rag_fusion_chain = (
+        {"context": reranked_retriever_chain, "question": RunnablePassthrough()}
+        | custom_rag_prompt
+        | openAIChatClient
+        | StrOutputParser()
+    )
+
+    # Measure the start time for RAG chain
+    start_time_for_chain = time.time()
+    # print(
+    #     "Start time for rag chain:",
+    #     datetime.fromtimestamp(start_time_for_chain).strftime("%I:%M %p"),
+    # )
+    answer = full_rag_fusion_chain.invoke({"question": user_question})
+    # if answer:
+    #     end_time_for_chain = time.time()
+    #     print(
+    #         "End time for rag chain:",
+    #         datetime.fromtimestamp(end_time_for_chain).strftime("%I:%M %p"),
+    #     )
+    #     elapsed_time_for_chain = end_time_for_chain - start_time_for_chain
+    #     print(
+    #         "Elapsed time for rag chain: {:.2f} seconds".format(elapsed_time_for_chain)
+    #     )
+
+    pdf_dict = {}
+
+    if reranked_data:
+        for doc, _ in reranked_data:
+            pdf_name = doc.metadata.get("source")
+            page_num = doc.metadata.get("page_num")
+            if pdf_name not in pdf_dict:
+                pdf_info = next(
+                    (
+                        pdf_info
+                        for pdf_info in fetched_missing_pdfs
+                        if pdf_info["pdf_name"] == pdf_name
+                    ),
+                    None,
+                )
+                if pdf_info:
+                    pdf_url = pdf_info["pdf_url"]
+                else:
+                    pdf_url = None
+                pdf_dict[pdf_name] = {
+                    "pdf_name": pdf_name,
+                    "pdf_url": pdf_url,
+                    "pages": [],
+                }
+            pdf_dict[pdf_name]["pages"].append(page_num)
+
+    pdfs_and_pages = list(pdf_dict.values())
+
+    # # Measure the end time
+    # end_time_total = time.time()
+    # print(
+    #     "End time for the entire process:",
+    #     datetime.fromtimestamp(end_time_total).strftime("%I:%M %p"),
+    # )
+    # elapsed_time_total = end_time_total - start_time_total
+    # print("Total elapsed time: {:.2f} seconds".format(elapsed_time_total))
+
+    return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
+
+
+def langchain_plus_open_ai_conversation_without_history(
+    user_question, retriever_filter, fetched_missing_pdfs
+):
+    # # Measure the start time
+    # start_time_total = time.time()
+    # print(
+    #     "Start time for the entire process:",
+    #     datetime.fromtimestamp(start_time_total).strftime("%I:%M %p"),
+    # )
+
+    # # Measure the start time for retriever chain
+    # start_time_for_retriever = time.time()
+    # print(
+    #     "Start time for retriever:",
+    #     datetime.fromtimestamp(start_time_for_retriever).strftime("%I:%M %p"),
+    # )
+
+    prompt = ChatPromptTemplate(
+        input_variables=["original_query"],
+        messages=[
+            SystemMessagePromptTemplate(
+                prompt=PromptTemplate(
+                    input_variables=[],
+                    template="You are a helpful assistant that generates multiple search queries based on a single input query",
+                )
+            ),
+            HumanMessagePromptTemplate(
+                prompt=PromptTemplate(
+                    input_variables=["original_query"],
+                    template="The user questions are focused on medicine, surgery and related discipline. Your task is to generate multiple search queries related to: {question} \n OUTPUT (4 queries):",
+                )
+            ),
+        ],
+    )
+
+    generate_queries = (
+        prompt | openAIChatClient | StrOutputParser() | (lambda x: x.split("\n"))
+    )
+
+    reranked_retriever_chain = (
+        generate_queries | retriever_filter.map() | reciprocal_rank_fusion
+    )
+
+    reranked_data = reranked_retriever_chain.invoke({"question": user_question})
+
+    # if reranked_data:
+    #     end_time_for_retriever = time.time()
+    #     print(
+    #         "End time for retriever:",
+    #         datetime.fromtimestamp(end_time_for_retriever).strftime("%I:%M %p"),
+    #     )
+    #     elapsed_time_for_retriever = end_time_for_retriever - start_time_for_retriever
+    #     print(
+    #         "Elapsed time for retriever: {:.2f} seconds".format(
+    #             elapsed_time_for_retriever
+    #         )
+    #     )
+
+    pdf_dict = {}
+
+    if reranked_data:
+        for doc, _ in reranked_data:
+            pdf_name = doc.metadata.get("source")
+            page_num = doc.metadata.get("page_num")
+            if pdf_name not in pdf_dict:
+                pdf_info = next(
+                    (
+                        pdf_info
+                        for pdf_info in fetched_missing_pdfs
+                        if pdf_info["pdf_name"] == pdf_name
+                    ),
+                    None,
+                )
+                if pdf_info:
+                    pdf_url = pdf_info["pdf_url"]
+                else:
+                    pdf_url = None
+                pdf_dict[pdf_name] = {
+                    "pdf_name": pdf_name,
+                    "pdf_url": pdf_url,
+                    "pages": [],
+                }
+            pdf_dict[pdf_name]["pages"].append(page_num)
+
+    pdfs_and_pages = list(pdf_dict.values())
+
+    query = f"""Use the documents below to answer the subsequent question. If the answer cannot be found, write "I don't know. Do not try to speculate"
+
+    Documents:
+    \"\"\"
+    {reranked_data}
+    \"\"\"
+
+    Question: {user_question}"""
+
+    # # Measure the start time for OpenAI call
+    # start_time_openai = time.time()
+    # print(
+    #     "Start time for OpenAI call:",
+    #     datetime.fromtimestamp(start_time_openai).strftime("%I:%M %p"),
+    # )
+
+    response = openAIClient.chat.completions.create(
+        messages=[
+            {
+                "role": "system",
+                "content": " Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability",
+            },
+            {"role": "user", "content": query},
+        ],
+        model="gpt-3.5-turbo-1106",
+        temperature=0,
+        seed=123,
+    )
+
+    final_response = response.choices[0].message.content
+
+    # # Measure the end time for OpenAI call
+    # end_time_openai = time.time()
+    # print(
+    #     "End time for OpenAI call:",
+    #     datetime.fromtimestamp(end_time_openai).strftime("%I:%M %p"),
+    # )
+
+    # # Calculate the elapsed time for OpenAI call
+    # elapsed_time_openai = end_time_openai - start_time_openai
+    # print("Elapsed time for OpenAI call: {:.2f} seconds".format(elapsed_time_openai))
+
+    # # Measure the end time for the entire process
+    # end_time_total = time.time()
+    # print(
+    #     "End time for the entire process:",
+    #     datetime.fromtimestamp(end_time_total).strftime("%I:%M %p"),
+    # )
+
+    # # Calculate the total elapsed time for the entire process
+    # elapsed_time_total = end_time_total - start_time_total
+    # print("Total elapsed time: {:.2f} seconds".format(elapsed_time_total))
+
+    return {
+        "answer": final_response,
+        "pdfs_and_pages": pdfs_and_pages,
+        "status": 200,
+    }
+
+
 def conversation_chain(
     user_question,
     selected_pdf,
@@ -487,30 +644,20 @@ def conversation_chain(
 
         if filter_kwargs:
             retriever_filter = qdrant_vector_embedding.as_retriever(
-                search_kwargs={"k": 10, **filter_kwargs}
+                search_kwargs={"k": 5, **filter_kwargs}
             )
         else:
             retriever_filter = qdrant_vector_embedding.as_retriever(
-                search_kwargs={"k": 10}
+                search_kwargs={"k": 5}
             )
 
-        # response = (
-        #     langchain_conversation_with_history(
-        #         user_question,
-        #         session_id,
-        #         chat_history,
-        #         retriever_filter,
-        #         fetched_missing_pdfs,
-        #     )
-        #     if request_origin == LOCAL_FRONT_END_URL
-        #     else langchain_conversation_without_history(
-        #         user_question, retriever_filter, fetched_missing_pdfs
-        #     )
-        # )
-
-        response = open_ai_conversation_without_history(
+        response = langchain_plus_open_ai_conversation_without_history(
             user_question, retriever_filter, fetched_missing_pdfs
         )
+            
+        # response = langchain_conversation_without_history(
+        #     user_question, retriever_filter, fetched_missing_pdfs
+        # )
 
         return response
 
