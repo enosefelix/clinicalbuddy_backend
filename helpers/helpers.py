@@ -39,6 +39,10 @@ from langchain_core.runnables import (
     RunnableBranch,
 )
 
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain_cohere import CohereRerank
+from langchain_community.llms import Cohere
+
 
 # Configure logging
 logging.basicConfig(filename="conversation.log", level=logging.DEBUG)
@@ -55,6 +59,7 @@ AWS_REGION = os.getenv("AWS_REGION")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 
 
 s3_client = boto3.client(
@@ -474,18 +479,18 @@ def langchain_plus_open_ai_conversation_without_history(
         prompt_hyde | openAIChatClient | StrOutputParser() | (lambda x: x.split("\n"))
     )
 
-    # embeddings = OpenAIEmbeddings()
-    # embeddings_filter = EmbeddingsFilter(embeddings=embeddings, similarity_threshold=0.76)
-    # compression_retriever = ContextualCompressionRetriever(
-    #     base_compressor=embeddings_filter, base_retriever=retriever_filter
-    # )
-
     # Using rag fusion to rerank order of retrieved documents
     reranked_retriever_chain = (
         generated_answers | retriever_filter.map() | reciprocal_rank_fusion
     )
-
     reranked_data = reranked_retriever_chain.invoke({"question": user_question})
+
+    # Create compressor and compression filter
+    compressor = CohereRerank(cohere_api_key=COHERE_API_KEY)
+    compression_filter = ContextualCompressionRetriever(
+        base_compressor=compressor, base_retriever=retriever_filter
+    )
+    cohere_reranked_data = compression_filter.get_relevant_documents(user_question)
 
     # if reranked_data:
     #     end_time_for_retriever = time.time()
@@ -499,37 +504,33 @@ def langchain_plus_open_ai_conversation_without_history(
     #             elapsed_time_for_retriever
     #         )
     #     )
-
     pdf_dict = {}
 
-    if reranked_data:
-        for doc, _ in reranked_data:
-            pdf_name = doc.metadata.get("source")
-            page_num = doc.metadata.get("page_num")
-            if pdf_name not in pdf_dict:
-                pdf_info = next(
-                    (
-                        pdf_info
-                        for pdf_info in fetched_missing_pdfs
-                        if pdf_info["pdf_name"] == pdf_name
-                    ),
-                    None,
-                )
-                if pdf_info:
-                    pdf_url = pdf_info["pdf_url"]
-                else:
-                    pdf_url = None
-                pdf_dict[pdf_name] = {
-                    "pdf_name": pdf_name,
-                    "pdf_url": pdf_url,
-                    "pages": [],
-                }
-            pdf_dict[pdf_name]["pages"].append(page_num)
+    # Iterate over each document in the response
+    for doc in cohere_reranked_data:
+        pdf_name = doc.metadata.get("source")
+        page_num = doc.metadata.get("page_num")
+        if pdf_name not in pdf_dict:
+            pdf_url = next(
+                (
+                    pdf_info["pdf_url"]
+                    for pdf_info in fetched_missing_pdfs
+                    if pdf_info["pdf_name"] == pdf_name
+                ),
+                None,
+            )
+            if pdf_url is None:
+                continue
+            pdf_dict[pdf_name] = {"pdf_name": pdf_name, "pdf_url": pdf_url, "pages": []}
 
-    pdfs_and_pages = list(pdf_dict.values())
-   
+        pdf_dict[pdf_name]["pages"].append(page_num)
 
-    query = f"""Use the documents below to answer the subsequent question. If the answer cannot be found within the documents, Always respond with "I don't know. 
+    if not pdf_dict:
+        return None
+    else:
+        pdfs_and_pages = list(pdf_dict.values())
+
+    query = f"""Use the documents below to answer the subsequent question. If the answer cannot be found within the documents, Always respond with "I don't know.
     Documents:
     \"\"\"
     {reranked_data}
@@ -583,7 +584,7 @@ def langchain_plus_open_ai_conversation_without_history(
 
     return {
         "answer": final_response,
-        "pdfs_and_pages":  pdfs_and_pages[:7],
+        "pdfs_and_pages": pdfs_and_pages,
         "status": 200,
     }
 
@@ -621,11 +622,11 @@ def conversation_chain(
 
         if filter_kwargs:
             retriever_filter = qdrant_vector_embedding.as_retriever(
-                search_kwargs={"k": 5, **filter_kwargs}
+                search_kwargs={"k": 10, **filter_kwargs}
             )
         else:
             retriever_filter = qdrant_vector_embedding.as_retriever(
-                search_kwargs={"k": 5}
+                search_kwargs={"k": 10}
             )
 
         response = langchain_plus_open_ai_conversation_without_history(
