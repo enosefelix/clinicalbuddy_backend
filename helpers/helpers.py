@@ -470,7 +470,7 @@ def langchain_plus_open_ai_conversation_without_history(
     # )
 
     # Using a combination of Multiquery retriever + HyDE document generation
-    template = """You are a helpful medical doctor, your task is to generate 4 variations of the user's questions looking at the question from different perspectives. Then provide concise but accurate answers to each of the generated questions which demonstrates medical expertise,  \n OUTPUT (4 answers):
+    template = """You are a helpful medical doctor, your task is to generate 2 variations of the user's questions looking at the question from different perspectives. Then provide concise but accurate answers to each of the generated questions which demonstrates medical expertise,  \n OUTPUT (4 answers):
     Question: {question}"""
     prompt_hyde = ChatPromptTemplate.from_template(template)
 
@@ -531,11 +531,12 @@ def langchain_plus_open_ai_conversation_without_history(
             pdf_dict[pdf_name]["pages"].append(page_num)
 
     pdfs_and_pages = list(pdf_dict.values())
+    filtered_reranked_data = reranked_data[:10]
 
     query = f"""Use the documents below to answer the subsequent question. If the answer cannot be found within the documents, Always respond with "I don't know.
     Documents:
     \"\"\"
-    {reranked_data}
+    {filtered_reranked_data}
     \"\"\"
 
     Question: {user_question}"""
