@@ -41,7 +41,6 @@ from langchain_core.runnables import (
 
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain_cohere import CohereRerank
-from langchain_community.llms import Cohere
 
 
 # Configure logging
@@ -485,12 +484,12 @@ def langchain_plus_open_ai_conversation_without_history(
     )
     reranked_data = reranked_retriever_chain.invoke({"question": user_question})
 
-    # Create compressor and compression filter
-    compressor = CohereRerank(cohere_api_key=COHERE_API_KEY)
-    compression_filter = ContextualCompressionRetriever(
-        base_compressor=compressor, base_retriever=retriever_filter
-    )
-    cohere_reranked_data = compression_filter.get_relevant_documents(user_question)
+    # # Create compressor and compression filter
+    # compressor = CohereRerank(cohere_api_key=COHERE_API_KEY)
+    # compression_filter = ContextualCompressionRetriever(
+    #     base_compressor=compressor, base_retriever=retriever_filter
+    # )
+    # cohere_reranked_data = compression_filter.get_relevant_documents(user_question)
 
     # if reranked_data:
     #     end_time_for_retriever = time.time()
@@ -504,31 +503,34 @@ def langchain_plus_open_ai_conversation_without_history(
     #             elapsed_time_for_retriever
     #         )
     #     )
+
     pdf_dict = {}
 
-    # Iterate over each document in the response
-    for doc in cohere_reranked_data:
-        pdf_name = doc.metadata.get("source")
-        page_num = doc.metadata.get("page_num")
-        if pdf_name not in pdf_dict:
-            pdf_url = next(
-                (
-                    pdf_info["pdf_url"]
-                    for pdf_info in fetched_missing_pdfs
-                    if pdf_info["pdf_name"] == pdf_name
-                ),
-                None,
-            )
-            if pdf_url is None:
-                continue
-            pdf_dict[pdf_name] = {"pdf_name": pdf_name, "pdf_url": pdf_url, "pages": []}
+    if reranked_data:
+        for doc, _ in reranked_data:
+            pdf_name = doc.metadata.get("source")
+            page_num = doc.metadata.get("page_num")
+            if pdf_name not in pdf_dict:
+                pdf_info = next(
+                    (
+                        pdf_info
+                        for pdf_info in fetched_missing_pdfs
+                        if pdf_info["pdf_name"] == pdf_name
+                    ),
+                    None,
+                )
+                if pdf_info:
+                    pdf_url = pdf_info["pdf_url"]
+                else:
+                    pdf_url = None
+                pdf_dict[pdf_name] = {
+                    "pdf_name": pdf_name,
+                    "pdf_url": pdf_url,
+                    "pages": [],
+                }
+            pdf_dict[pdf_name]["pages"].append(page_num)
 
-        pdf_dict[pdf_name]["pages"].append(page_num)
-
-    if not pdf_dict:
-        return None
-    else:
-        pdfs_and_pages = list(pdf_dict.values())
+    pdfs_and_pages = list(pdf_dict.values())
 
     query = f"""Use the documents below to answer the subsequent question. If the answer cannot be found within the documents, Always respond with "I don't know.
     Documents:
@@ -584,7 +586,7 @@ def langchain_plus_open_ai_conversation_without_history(
 
     return {
         "answer": final_response,
-        "pdfs_and_pages": pdfs_and_pages,
+        "pdfs_and_pages": pdfs_and_pages[:7],
         "status": 200,
     }
 
