@@ -23,15 +23,10 @@ from langchain_openai import ChatOpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.adapters.openai import convert_openai_messages
-
-
 from langchain.schema.output_parser import StrOutputParser
 from langchain.prompts import (
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate,
     MessagesPlaceholder,
     ChatPromptTemplate,
-    PromptTemplate,
 )
 from langchain.load import dumps, loads
 from langchain_community.chat_message_histories import ChatMessageHistory
@@ -354,30 +349,18 @@ def langchain_conversation_without_history(
     #     datetime.fromtimestamp(start_time_for_retriever).strftime("%I:%M %p"),
     # )
 
-    prompt = ChatPromptTemplate(
-        input_variables=["original_query"],
-        messages=[
-            SystemMessagePromptTemplate(
-                prompt=PromptTemplate(
-                    input_variables=[],
-                    template="You are a helpful assistant that generates multiple search queries based on a single input query",
-                )
-            ),
-            HumanMessagePromptTemplate(
-                prompt=PromptTemplate(
-                    input_variables=["original_query"],
-                    template="The user questions are focused on medicine, surgery and related discipline. Your task is to generate multiple search queries related to: {question} \n OUTPUT (4 queries):",
-                )
-            ),
-        ],
+    # Using a combination of Multiquery retriever + HyDE document generation
+    template = """Your task is to generate 4 variations of the user's questions an answer to each of the generated questions,  \n OUTPUT (4 answers):
+    Question: {question}"""
+    prompt_hyde = ChatPromptTemplate.from_template(template)
+
+    generated_answers = (
+        prompt_hyde | openAIChatClient | StrOutputParser() | (lambda x: x.split("\n"))
     )
 
-    generate_queries = (
-        prompt | openAIChatClient | StrOutputParser() | (lambda x: x.split("\n"))
-    )
-
+    # Using rag fusion to rerank order of retrieved documents
     reranked_retriever_chain = (
-        generate_queries | retriever_filter.map() | reciprocal_rank_fusion
+        generated_answers | retriever_filter.map() | reciprocal_rank_fusion
     )
 
     reranked_data = reranked_retriever_chain.invoke({"question": user_question})
@@ -482,30 +465,24 @@ def langchain_plus_open_ai_conversation_without_history(
     #     datetime.fromtimestamp(start_time_for_retriever).strftime("%I:%M %p"),
     # )
 
-    prompt = ChatPromptTemplate(
-        input_variables=["original_query"],
-        messages=[
-            SystemMessagePromptTemplate(
-                prompt=PromptTemplate(
-                    input_variables=[],
-                    template="You are a helpful assistant that generates multiple search queries based on a single input query",
-                )
-            ),
-            HumanMessagePromptTemplate(
-                prompt=PromptTemplate(
-                    input_variables=["original_query"],
-                    template="The user questions are focused on medicine, surgery and related discipline. Your task is to generate multiple search queries related to: {question} \n OUTPUT (4 queries):",
-                )
-            ),
-        ],
+    # Using a combination of Multiquery retriever + HyDE document generation
+    template = """You are a helpful medical doctor, your task is to generate 4 variations of the user's questions looking at the question from different perspectives. Then provide concise but accurate answers to each of the generated questions which demonstrates medical expertise,  \n OUTPUT (4 answers):
+    Question: {question}"""
+    prompt_hyde = ChatPromptTemplate.from_template(template)
+
+    generated_answers = (
+        prompt_hyde | openAIChatClient | StrOutputParser() | (lambda x: x.split("\n"))
     )
 
-    generate_queries = (
-        prompt | openAIChatClient | StrOutputParser() | (lambda x: x.split("\n"))
-    )
+    # embeddings = OpenAIEmbeddings()
+    # embeddings_filter = EmbeddingsFilter(embeddings=embeddings, similarity_threshold=0.76)
+    # compression_retriever = ContextualCompressionRetriever(
+    #     base_compressor=embeddings_filter, base_retriever=retriever_filter
+    # )
 
+    # Using rag fusion to rerank order of retrieved documents
     reranked_retriever_chain = (
-        generate_queries | retriever_filter.map() | reciprocal_rank_fusion
+        generated_answers | retriever_filter.map() | reciprocal_rank_fusion
     )
 
     reranked_data = reranked_retriever_chain.invoke({"question": user_question})
@@ -550,9 +527,9 @@ def langchain_plus_open_ai_conversation_without_history(
             pdf_dict[pdf_name]["pages"].append(page_num)
 
     pdfs_and_pages = list(pdf_dict.values())
+   
 
-    query = f"""Use the documents below to answer the subsequent question. If the answer cannot be found, write "I don't know. Do not try to speculate"
-
+    query = f"""Use the documents below to answer the subsequent question. If the answer cannot be found within the documents, Always respond with "I don't know. 
     Documents:
     \"\"\"
     {reranked_data}
@@ -606,7 +583,7 @@ def langchain_plus_open_ai_conversation_without_history(
 
     return {
         "answer": final_response,
-        "pdfs_and_pages": pdfs_and_pages,
+        "pdfs_and_pages":  pdfs_and_pages[:7],
         "status": 200,
     }
 
@@ -654,7 +631,7 @@ def conversation_chain(
         response = langchain_plus_open_ai_conversation_without_history(
             user_question, retriever_filter, fetched_missing_pdfs
         )
-            
+
         # response = langchain_conversation_without_history(
         #     user_question, retriever_filter, fetched_missing_pdfs
         # )
@@ -828,3 +805,9 @@ def tavily_search(final_question):
         return response
     except Exception as e:
         return f"Error occurred: please try again later"
+
+
+# Useful links
+# https://colab.research.google.com/drive/1q6ejIWrorckUdkLrLsHl9PnVQhXWQ96i?usp=sharing#scrollTo=QKgOwvftqV2B
+# https://blog.langchain.dev/query-transformations/
+# https://youtu.be/GchC5WxeXGc?si=AeSgvv2-9IBkt5SW
