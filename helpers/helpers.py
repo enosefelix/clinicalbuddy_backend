@@ -24,6 +24,8 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.adapters.openai import convert_openai_messages
 from langchain.schema.output_parser import StrOutputParser
+from langchain_core.output_parsers import JsonOutputParser
+
 from langchain.prompts import (
     MessagesPlaceholder,
     ChatPromptTemplate,
@@ -455,22 +457,24 @@ def langchain_conversation_without_history(
 def langchain_plus_open_ai_conversation_without_history(
     user_question, retriever_filter, fetched_missing_pdfs
 ):
-    # # Measure the start time
-    # start_time_total = time.time()
-    # print(
-    #     "Start time for the entire process:",
-    #     datetime.fromtimestamp(start_time_total).strftime("%I:%M %p"),
-    # )
+    filtered_relevant_ranked_data = []
+    filtered_not_relevant_ranked_data = []
+    # Measure the start time
+    start_time_total = time.time()
+    print(
+        "Start time for the entire process:",
+        datetime.fromtimestamp(start_time_total).strftime("%I:%M %p"),
+    )
 
-    # # Measure the start time for retriever chain
-    # start_time_for_retriever = time.time()
-    # print(
-    #     "Start time for retriever:",
-    #     datetime.fromtimestamp(start_time_for_retriever).strftime("%I:%M %p"),
-    # )
+    # Measure the start time for retriever chain
+    start_time_for_retriever = time.time()
+    print(
+        "Start time for retriever:",
+        datetime.fromtimestamp(start_time_for_retriever).strftime("%I:%M %p"),
+    )
 
     # Using a combination of Multiquery retriever + HyDE document generation
-    template = """You are a helpful medical doctor, your task is to generate 2 variations of the user's questions looking at the question from different perspectives. Then provide concise but accurate answers to each of the generated questions which demonstrates medical expertise,  \n OUTPUT (4 answers):
+    template = """You are a helpful assistant, your task is to generate 2  variations of the user's question looking at the question from  different perspectives. Then provide concise but accurate answers to  the generated question which demonstrates medical expertise,  \n OUTPUT (2 answers):
     Question: {question}"""
     prompt_hyde = ChatPromptTemplate.from_template(template)
 
@@ -484,30 +488,103 @@ def langchain_plus_open_ai_conversation_without_history(
     )
     reranked_data = reranked_retriever_chain.invoke({"question": user_question})
 
-    # # Create compressor and compression filter
-    # compressor = CohereRerank(cohere_api_key=COHERE_API_KEY)
-    # compression_filter = ContextualCompressionRetriever(
-    #     base_compressor=compressor, base_retriever=retriever_filter
-    # )
-    # cohere_reranked_data = compression_filter.get_relevant_documents(user_question)
+    if reranked_data:
+        end_time_for_retriever = time.time()
+        print(
+            "End time for retriever:",
+            datetime.fromtimestamp(end_time_for_retriever).strftime("%I:%M %p"),
+        )
+        elapsed_time_for_retriever = end_time_for_retriever - start_time_for_retriever
+        print(
+            "Elapsed time for retriever: {:.2f} seconds".format(
+                elapsed_time_for_retriever
+            )
+        )
 
-    # if reranked_data:
-    #     end_time_for_retriever = time.time()
-    #     print(
-    #         "End time for retriever:",
-    #         datetime.fromtimestamp(end_time_for_retriever).strftime("%I:%M %p"),
-    #     )
-    #     elapsed_time_for_retriever = end_time_for_retriever - start_time_for_retriever
-    #     print(
-    #         "Elapsed time for retriever: {:.2f} seconds".format(
-    #             elapsed_time_for_retriever
-    #         )
-    #     )
+    # Measure the start time for checking document relavance
+    start_time_document_relevance = time.time()
+    print(
+        "Start time for checking document relavance:",
+        datetime.fromtimestamp(start_time_document_relevance).strftime("%I:%M %p"),
+    )
+
+    def check_document_relevance(data, user_question):
+        try:
+            relevance_query = f"""You are a grader assessing relevance of a retrieved document to a user question. \n 
+            Here is the retrieved document: \n\n {data} \n\n
+            Here is the user question: {user_question} \n
+            If the document contains keywords related to the user question, grade it as relevant. \n
+            It does not need to be a stringent test. The goal is to filter out erroneous retrievals. \n
+            Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question. \n
+            Provide the binary score as a JSON with a single key 'score' and no preamble or explanation.
+        """
+
+            check_document_relevance = openAIClient.chat.completions.create(
+                model="gpt-3.5-turbo-1106",
+                temperature=0,
+                seed=123,
+                response_format={"type": "json_object"},
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant designed to output JSON.",
+                    },
+                    {"role": "user", "content": relevance_query},
+                ],
+            )
+            retrieval_grader = check_document_relevance.choices[0].message.content
+            return retrieval_grader
+        except Exception as e:
+            raise Exception(
+                f"An error occurred while  checking document relevance: {e}"
+            )
+
+    def grade_documents(data_list):
+        for i in data_list:
+            page_content = i[
+                0
+            ].page_content  # Accessing page content from the Document object
+            try:
+                res = check_document_relevance(page_content, user_question)
+                if res is not None:
+                    res_json = json.loads(res)  # Parse the response as JSON
+                    if res_json.get("score") == "yes":
+                        print("---GRADE: DOCUMENT RELEVANT---")
+                        filtered_relevant_ranked_data.append(i)
+                    else:
+                        print("---GRADE: DOCUMENT  NOT RELEVANT---")
+                        filtered_not_relevant_ranked_data.append(i)
+
+            except Exception as e:
+                raise Exception(f"An error occurred while grading documents: {e}")
+
+    if reranked_data:
+        grade_documents(reranked_data)
+        if len(filtered_not_relevant_ranked_data) > len(filtered_relevant_ranked_data):
+            pass
+            # Do API search instead
+            # serper_search(user_question)
+
+    if filtered_relevant_ranked_data and filtered_not_relevant_ranked_data:
+        # Measure the end time for OpenAI calls
+        end_time_document_relevance = time.time()
+        print(
+            "End time for checking document relevance:",
+            datetime.fromtimestamp(end_time_document_relevance).strftime("%I:%M %p"),
+        )
+        elapsed_time_document_relevaance = (
+            end_time_document_relevance - start_time_document_relevance
+        )
+        print(
+            "Elapsed time for document relevance: {:.2f} seconds".format(
+                elapsed_time_document_relevaance
+            )
+        )
 
     pdf_dict = {}
 
-    if reranked_data:
-        for doc, _ in reranked_data:
+    if filtered_relevant_ranked_data:
+        for doc, _ in filtered_relevant_ranked_data:
             pdf_name = doc.metadata.get("source")
             page_num = doc.metadata.get("page_num")
             if pdf_name not in pdf_dict:
@@ -531,65 +608,69 @@ def langchain_plus_open_ai_conversation_without_history(
             pdf_dict[pdf_name]["pages"].append(page_num)
 
     pdfs_and_pages = list(pdf_dict.values())
-    filtered_reranked_data = reranked_data[:10]
 
-    query = f"""Use the documents below to answer the subsequent question. If the answer cannot be found within the documents, Always respond with "I don't know.
-    Documents:
-    \"\"\"
-    {filtered_reranked_data}
-    \"\"\"
-
-    Question: {user_question}"""
-
-    # # Measure the start time for OpenAI call
-    # start_time_openai = time.time()
-    # print(
-    #     "Start time for OpenAI call:",
-    #     datetime.fromtimestamp(start_time_openai).strftime("%I:%M %p"),
-    # )
-
-    response = openAIClient.chat.completions.create(
-        messages=[
-            {
-                "role": "system",
-                "content": " Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability",
-            },
-            {"role": "user", "content": query},
-        ],
-        model="gpt-3.5-turbo-1106",
-        temperature=0,
-        seed=123,
+    start_time_final_response = time.time()
+    print(
+        "Start time for providing a final response:",
+        datetime.fromtimestamp(start_time_final_response).strftime("%I:%M %p"),
     )
 
-    final_response = response.choices[0].message.content
+    if filtered_relevant_ranked_data:
+        query = f"""Use the documents below to answer the subsequent question. If the answer cannot be found within the documents, Always respond with "I don't know" and do not try to speculate.
+        Documents:
+        \"\"\"
+        {filtered_relevant_ranked_data}
+        \"\"\"
 
-    # # Measure the end time for OpenAI call
-    # end_time_openai = time.time()
-    # print(
-    #     "End time for OpenAI call:",
-    #     datetime.fromtimestamp(end_time_openai).strftime("%I:%M %p"),
-    # )
+        Question: {user_question}"""
 
-    # # Calculate the elapsed time for OpenAI call
-    # elapsed_time_openai = end_time_openai - start_time_openai
-    # print("Elapsed time for OpenAI call: {:.2f} seconds".format(elapsed_time_openai))
+        response = openAIClient.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": " Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability",
+                },
+                {"role": "user", "content": query},
+            ],
+            model="gpt-3.5-turbo-1106",
+            temperature=0,
+            seed=123,
+        )
 
-    # # Measure the end time for the entire process
-    # end_time_total = time.time()
-    # print(
-    #     "End time for the entire process:",
-    #     datetime.fromtimestamp(end_time_total).strftime("%I:%M %p"),
-    # )
+        final_response = response.choices[0].message.content
 
-    # # Calculate the total elapsed time for the entire process
-    # elapsed_time_total = end_time_total - start_time_total
-    # print("Total elapsed time: {:.2f} seconds".format(elapsed_time_total))
+        if final_response:
+            end_time_final_response = time.time()
+            print(
+                "Start time for providing a final response:",
+                datetime.fromtimestamp(end_time_final_response).strftime("%I:%M %p"),
+            )
+            # Calculate the elapsed time for providing a final response
+            elapsed_time_final_response = (
+                end_time_final_response - start_time_final_response
+            )
+            print(
+                "Elapsed time for final response: {:.2f} seconds".format(
+                    elapsed_time_final_response
+                )
+            )
 
-    return {
-        "answer": final_response,
-        "pdfs_and_pages": pdfs_and_pages[:7],
-        "status": 200,
-    }
+        # Measure the end time for the entire process
+        end_time_total = time.time()
+        print(
+            "End time for the entire process:",
+            datetime.fromtimestamp(end_time_total).strftime("%I:%M %p"),
+        )
+
+        # Calculate the total elapsed time for the entire process
+        elapsed_time_total = end_time_total - start_time_total
+        print("Total elapsed time: {:.2f} seconds".format(elapsed_time_total))
+
+        return {
+            "answer": final_response,
+            "pdfs_and_pages": pdfs_and_pages[:6],
+            "status": 200,
+        }
 
 
 def conversation_chain(
@@ -625,11 +706,11 @@ def conversation_chain(
 
         if filter_kwargs:
             retriever_filter = qdrant_vector_embedding.as_retriever(
-                search_kwargs={"k": 10, **filter_kwargs}
+                search_kwargs={"k": 5, **filter_kwargs}
             )
         else:
             retriever_filter = qdrant_vector_embedding.as_retriever(
-                search_kwargs={"k": 10}
+                search_kwargs={"k": 5}
             )
 
         response = langchain_plus_open_ai_conversation_without_history(
