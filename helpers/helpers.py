@@ -512,9 +512,9 @@ def langchain_plus_open_ai_conversation_without_history(
         try:
             relevance_query = f"""You are a grader assessing relevance of a retrieved document to a user question. \n 
             Here is the retrieved document: \n\n {data} \n\n
-            Here is the user question: {user_question} \n
-            If the document contains keywords related to the user question, grade it as relevant. \n
-            It does not need to be a stringent test. The goal is to filter out erroneous retrievals. \n
+            Here is the user question: {generated_answers} \n
+            If the document contains keywords or phrases directly related to the user question, grade it as relevant. \n
+            It needs to be a stringent test. The goal is to filter out erroneous retrievals. \n
             Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question. \n
             Provide the binary score as a JSON with a single key 'score' and no preamble or explanation.
         """
@@ -615,62 +615,71 @@ def langchain_plus_open_ai_conversation_without_history(
         datetime.fromtimestamp(start_time_final_response).strftime("%I:%M %p"),
     )
 
-    if filtered_relevant_ranked_data:
-        query = f"""Use the documents below to answer the subsequent question. If the answer cannot be found within the documents, Always respond with "I don't know" and do not try to speculate.
+    if len(filtered_relevant_ranked_data) > 0:
+        print("Filtered relevant ranked data found. Proceeding with generating response.")
+        query = f"""Use the documents below to answer the subsequent question.
         Documents:
         \"\"\"
         {filtered_relevant_ranked_data}
         \"\"\"
 
         Question: {user_question}"""
+        print("Query for response generation:", query)
 
-        response = openAIClient.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": " Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability",
-                },
-                {"role": "user", "content": query},
-            ],
-            model="gpt-3.5-turbo-1106",
-            temperature=0,
-            seed=123,
-        )
-
-        final_response = response.choices[0].message.content
-
-        if final_response:
-            end_time_final_response = time.time()
-            print(
-                "Start time for providing a final response:",
-                datetime.fromtimestamp(end_time_final_response).strftime("%I:%M %p"),
+        try:
+            response = openAIClient.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": " Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. If the answer cannot be found within the document, respond with 'I don't know' and do not try to speculate.",
+                    },
+                    {"role": "user", "content": query},
+                ],
+                model="gpt-3.5-turbo-1106",
+                temperature=0,
+                seed=123,
             )
-            # Calculate the elapsed time for providing a final response
-            elapsed_time_final_response = (
-                end_time_final_response - start_time_final_response
-            )
-            print(
-                "Elapsed time for final response: {:.2f} seconds".format(
-                    elapsed_time_final_response
+            print("Response generated successfully.")
+
+            final_response = response.choices[0].message.content
+
+            if final_response:
+                end_time_final_response = time.time()
+                print(
+                    "Start time for providing a final response:",
+                    datetime.fromtimestamp(end_time_final_response).strftime("%I:%M %p"),
                 )
+                # Calculate the elapsed time for providing a final response
+                elapsed_time_final_response = (
+                    end_time_final_response - start_time_final_response
+                )
+                print(
+                    "Elapsed time for final response: {:.2f} seconds".format(
+                        elapsed_time_final_response
+                    )
+                )
+
+            # Measure the end time for the entire process
+            end_time_total = time.time()
+            print(
+                "End time for the entire process:",
+                datetime.fromtimestamp(end_time_total).strftime("%I:%M %p"),
             )
 
-        # Measure the end time for the entire process
-        end_time_total = time.time()
-        print(
-            "End time for the entire process:",
-            datetime.fromtimestamp(end_time_total).strftime("%I:%M %p"),
-        )
-
-        # Calculate the total elapsed time for the entire process
-        elapsed_time_total = end_time_total - start_time_total
-        print("Total elapsed time: {:.2f} seconds".format(elapsed_time_total))
-
-        return {
-            "answer": final_response,
-            "pdfs_and_pages": pdfs_and_pages[:6],
-            "status": 200,
-        }
+            # Calculate the total elapsed time for the entire process
+            elapsed_time_total = end_time_total - start_time_total
+            print("Total elapsed time: {:.2f} seconds".format(elapsed_time_total))
+            return {
+                "answer": final_response,
+                "pdfs_and_pages": pdfs_and_pages[:6],
+                "status": 200,
+            }
+        except Exception as e:
+            print(f"An error occurred while generating response: {e}")
+            return {"answer": "An error occurred while generating response.", "pdfs_and_pages": [], "status": 500}
+    else:
+        print("No relevant documents found. Unable to provide a final response.")
+        return {"answer": "I don't know", "pdfs_and_pages": [], "status": 200}
 
 
 def conversation_chain(
