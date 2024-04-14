@@ -24,8 +24,6 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.adapters.openai import convert_openai_messages
 from langchain.schema.output_parser import StrOutputParser
-from langchain_core.output_parsers import JsonOutputParser
-
 from langchain.prompts import (
     MessagesPlaceholder,
     ChatPromptTemplate,
@@ -40,9 +38,6 @@ from langchain_core.runnables import (
     RunnablePassthrough,
     RunnableBranch,
 )
-
-from langchain.retrievers import ContextualCompressionRetriever
-from langchain_cohere import CohereRerank
 
 
 # Configure logging
@@ -508,11 +503,11 @@ def langchain_plus_open_ai_conversation_without_history(
         datetime.fromtimestamp(start_time_document_relevance).strftime("%I:%M %p"),
     )
 
-    def check_document_relevance(data, user_question):
+    def check_document_relevance(data):
         try:
             relevance_query = f"""You are a grader assessing relevance of a retrieved document to a user question. \n 
             Here is the retrieved document: \n\n {data} \n\n
-            Here is the user question: {generated_answers} \n
+            Here is the user question: {user_question} \n
             If the document contains keywords or phrases directly related to the user question, grade it as relevant. \n
             It needs to be a stringent test. The goal is to filter out erroneous retrievals. \n
             Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question. \n
@@ -545,7 +540,7 @@ def langchain_plus_open_ai_conversation_without_history(
                 0
             ].page_content  # Accessing page content from the Document object
             try:
-                res = check_document_relevance(page_content, user_question)
+                res = check_document_relevance(page_content)
                 if res is not None:
                     res_json = json.loads(res)  # Parse the response as JSON
                     if res_json.get("score") == "yes":
@@ -616,22 +611,27 @@ def langchain_plus_open_ai_conversation_without_history(
     )
 
     if len(filtered_relevant_ranked_data) > 0:
-        print("Filtered relevant ranked data found. Proceeding with generating response.")
-        query = f"""Use the documents below to answer the subsequent question.
-        Documents:
+        print(
+            "Filtered relevant ranked data found. Proceeding with generating response."
+        )
+        query = f"""  
+        Given the user's Question: {user_question}
+        
+        Use the context below to answer:
+        
+        Context:
+
         \"\"\"
         {filtered_relevant_ranked_data}
         \"\"\"
-
-        Question: {user_question}"""
-        print("Query for response generation:", query)
+         """
 
         try:
             response = openAIClient.chat.completions.create(
                 messages=[
                     {
                         "role": "system",
-                        "content": " Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. If the answer cannot be found within the document, respond with 'I don't know' and do not try to speculate.",
+                        "content": "You are a helpful AI assistant. Answer the user's question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. ALWAYS utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency and ensure your answers are ALWAYS grounded in the context and relevant to the question. If the materials are not relevant or complete enough to confidently answer the uer's questions, your best response is 'the materials do not appear to be sufficent to provide a good answer'.",
                     },
                     {"role": "user", "content": query},
                 ],
@@ -647,7 +647,9 @@ def langchain_plus_open_ai_conversation_without_history(
                 end_time_final_response = time.time()
                 print(
                     "Start time for providing a final response:",
-                    datetime.fromtimestamp(end_time_final_response).strftime("%I:%M %p"),
+                    datetime.fromtimestamp(end_time_final_response).strftime(
+                        "%I:%M %p"
+                    ),
                 )
                 # Calculate the elapsed time for providing a final response
                 elapsed_time_final_response = (
@@ -676,7 +678,11 @@ def langchain_plus_open_ai_conversation_without_history(
             }
         except Exception as e:
             print(f"An error occurred while generating response: {e}")
-            return {"answer": "An error occurred while generating response.", "pdfs_and_pages": [], "status": 500}
+            return {
+                "answer": "An error occurred while generating response.",
+                "pdfs_and_pages": [],
+                "status": 500,
+            }
     else:
         print("No relevant documents found. Unable to provide a final response.")
         return {"answer": "I don't know", "pdfs_and_pages": [], "status": 200}
@@ -737,7 +743,7 @@ def conversation_chain(
 
 
 def transcribe_audio(file_bytes, file_type, content_type):
-    system_prompt = "You are a helpful assistant for an AI assisted chat bot that helps users search through clinical and medical guidelines. Accept the user question, correct any typographical errors and return the users exact words, Do not answer the questions, just return the exact question"
+    system_prompt = "You are a helpful AI assistant that helps users search through clinical and medical guidelines. Accept the user question, correct any typographical errors and return the users exact words, Do not answer the questions, just return the exact question"
 
     file_buffer = io.BytesIO(file_bytes)
     file_info = ("temp." + file_type, file_buffer, content_type)
@@ -842,7 +848,7 @@ def serper_search(final_question):
     prompt = [
         {
             "role": "system",
-            "content": f"You are an AI-assisted medical doctor and research assistant with specialized expertise in medical sciences."
+            "content": f"You are a helpful AI research assistant with specialized expertise in medical sciences."
             f"Your primary function is to synthesize well-structured, critically analyzed, and medically accurate reports based on provided information."
             f"Your responses should emulate the communication style of a medical professional, incorporating appropriate medical terminology and considerations, and always adhere to the present simple tense for consistency",
         },
@@ -879,7 +885,7 @@ def tavily_search(final_question):
         prompt = [
             {
                 "role": "system",
-                "content": f"You are an AI-assisted medical doctor and research assistant with specialized expertise in medical sciences."
+                "content": f"You are a helful AI research assistant with specialized expertise in medical sciences."
                 f"Your primary function is to synthesize well-structured, critically analyzed, and medically accurate reports based on provided information."
                 f"Your responses should emulate the communication style of a medical professional, incorporating appropriate medical terminology and considerations, and always adhere to the present simple tense for consistency",
             },
