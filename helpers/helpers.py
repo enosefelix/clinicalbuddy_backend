@@ -5,6 +5,7 @@ import boto3
 import logging
 import requests
 import json
+import cohere
 import time
 from datetime import datetime
 import hashlib
@@ -38,6 +39,7 @@ from langchain_core.runnables import (
     RunnablePassthrough,
     RunnableBranch,
 )
+from langchain_cohere import ChatCohere
 
 
 # Configure logging
@@ -58,6 +60,7 @@ SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 
 
+
 s3_client = boto3.client(
     service_name="s3",
     region_name=AWS_REGION,
@@ -65,10 +68,13 @@ s3_client = boto3.client(
     aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
 )
 
+cohereChatClient = ChatCohere(model="command-r")
 openAIChatClient = ChatOpenAI(
     temperature=0.0,
     model="gpt-3.5-turbo-0125",
 )
+
+co = cohere.Client(COHERE_API_KEY)
 
 
 chat_history = ChatMessageHistory()
@@ -449,7 +455,7 @@ def langchain_conversation_without_history(
     return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
 
-def langchain_plus_open_ai_conversation_without_history(
+def langchain_plus_cohere_conversation_without_history(
     user_question, retriever_filter, fetched_missing_pdfs
 ):
     filtered_relevant_ranked_data = []
@@ -469,12 +475,12 @@ def langchain_plus_open_ai_conversation_without_history(
     )
 
     # Using a combination of Multiquery retriever + HyDE document generation
-    template = """You are a helpful assistant, your task is to generate 2  variations of the user's question looking at the question from  different perspectives. Then provide concise but accurate answers to  the generated question which demonstrates medical expertise,  \n OUTPUT (2 answers):
+    template = """You are a helpful assistant, your task is to generate 2  variations of the user's question looking at the question from different perspectives. Then provide concise but accurate answers to  the generated question which demonstrates medical expertise,  \n OUTPUT (2 answers):
     Question: {question}"""
     prompt_hyde = ChatPromptTemplate.from_template(template)
 
     generated_answers = (
-        prompt_hyde | openAIChatClient | StrOutputParser() | (lambda x: x.split("\n"))
+        prompt_hyde | cohereChatClient | StrOutputParser() | (lambda x: x.split("\n"))
     )
 
     # Using rag fusion to rerank order of retrieved documents
@@ -503,52 +509,35 @@ def langchain_plus_open_ai_conversation_without_history(
         datetime.fromtimestamp(start_time_document_relevance).strftime("%I:%M %p"),
     )
 
-    def check_document_relevance(data):
-        try:
-            relevance_query = f"""You are a grader assessing relevance of a retrieved document to a user question. \n 
+    def check_document_relevance_with_cohere(data):
+        prompt_rag = f"""You are a grader assessing relevance of a retrieved document to a user question. \n
             Here is the retrieved document: \n\n {data} \n\n
             Here is the user question: {user_question} \n
             If the document contains keywords or phrases directly related to the user question, grade it as relevant. \n
             It needs to be a stringent test. The goal is to filter out erroneous retrievals. \n
             Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question. \n
-            Provide the binary score as a JSON with a single key 'score' and no preamble or explanation.
+            Provide the binary score as a JSON with a single key 'score' and no preamble or explanation. Only ouput the object without any text.
         """
 
-            check_document_relevance = openAIClient.chat.completions.create(
-                model="gpt-3.5-turbo-1106",
-                temperature=0,
-                seed=123,
-                response_format={"type": "json_object"},
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a helpful assistant designed to output JSON.",
-                    },
-                    {"role": "user", "content": relevance_query},
-                ],
-            )
-            retrieval_grader = check_document_relevance.choices[0].message.content
-            return retrieval_grader
+        try:
+            response = co.chat(message=prompt_rag, model="command-r", temperature=0.0)
+            return response.text
         except Exception as e:
-            raise Exception(
-                f"An error occurred while  checking document relevance: {e}"
-            )
+            raise Exception(f"An error occurred while checking relevance: {e}")
 
     def grade_documents(data_list):
-        for i in data_list:
-            page_content = i[
-                0
-            ].page_content  # Accessing page content from the Document object
+        for i, document_data in enumerate(data_list, start=1):
+            page_content = document_data[0].page_content
             try:
-                res = check_document_relevance(page_content)
+                res = check_document_relevance_with_cohere(page_content)
                 if res is not None:
                     res_json = json.loads(res)  # Parse the response as JSON
                     if res_json.get("score") == "yes":
-                        print("---GRADE: DOCUMENT RELEVANT---")
-                        filtered_relevant_ranked_data.append(i)
+                        print(f"---GRADE: DOCUMENT {i} RELEVANT---")
+                        filtered_relevant_ranked_data.append(document_data)
                     else:
-                        print("---GRADE: DOCUMENT  NOT RELEVANT---")
-                        filtered_not_relevant_ranked_data.append(i)
+                        print(f"---GRADE: DOCUMENT {i} NOT RELEVANT---")
+                        filtered_not_relevant_ranked_data.append(document_data)
 
             except Exception as e:
                 raise Exception(f"An error occurred while grading documents: {e}")
@@ -614,52 +603,42 @@ def langchain_plus_open_ai_conversation_without_history(
         print(
             "Filtered relevant ranked data found. Proceeding with generating response."
         )
-        query = f"""  
-        Given the user's Question: {user_question}
-        
-        Use the context below to answer:
-        
-        Context:
-
-        \"\"\"
-        {filtered_relevant_ranked_data}
-        \"\"\"
-         """
 
         try:
-            response = openAIClient.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a helpful AI assistant. Answer the user's question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. ALWAYS utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency and ensure your answers are ALWAYS grounded in the context and relevant to the question. If the materials are not relevant or complete enough to confidently answer the uer's questions, your best response is 'the materials do not appear to be sufficent to provide a good answer'.",
-                    },
-                    {"role": "user", "content": query},
-                ],
-                model="gpt-3.5-turbo-1106",
-                temperature=0,
-                seed=123,
+            response_prompt = f"""
+            ##Context
+            Below is relavant context: {filtered_relevant_ranked_data}
+
+            ## User Question
+            Here is the user's question: {user_question} \n
+
+            ## Instructions
+            You are a helpful AI assistant. 
+            BASED ON THE PROVIDED CONTEXT, answer the user's question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. ALWAYS use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency and ensure your answers are ALWAYS grounded in the context and relevant to the question. If the materials are not relevant or complete enough to confidently answer the user's questions, your best response is 'the materials do not appear to be sufficent to provide a good answer'."
+            """
+
+            response = co.chat(
+                message=response_prompt, model="command-r", temperature=0.0
             )
-            print("Response generated successfully.")
+            final_response = response.text
 
-            final_response = response.choices[0].message.content
-
-            if final_response:
-                end_time_final_response = time.time()
-                print(
-                    "Start time for providing a final response:",
-                    datetime.fromtimestamp(end_time_final_response).strftime(
-                        "%I:%M %p"
-                    ),
-                )
-                # Calculate the elapsed time for providing a final response
-                elapsed_time_final_response = (
-                    end_time_final_response - start_time_final_response
-                )
-                print(
-                    "Elapsed time for final response: {:.2f} seconds".format(
-                        elapsed_time_final_response
-                    )
-                )
+            # if final_response:
+            #     end_time_final_response = time.time()
+            #     print(
+            #         "Start time for providing a final response:",
+            #         datetime.fromtimestamp(end_time_final_response).strftime(
+            #             "%I:%M %p"
+            #         ),
+            #     )
+            #     # Calculate the elapsed time for providing a final response
+            #     elapsed_time_final_response = (
+            #         end_time_final_response - start_time_final_response
+            #     )
+            #     print(
+            #         "Elapsed time for final response: {:.2f} seconds".format(
+            #             elapsed_time_final_response
+            #         )
+            #     )
 
             # Measure the end time for the entire process
             end_time_total = time.time()
@@ -728,7 +707,7 @@ def conversation_chain(
                 search_kwargs={"k": 5}
             )
 
-        response = langchain_plus_open_ai_conversation_without_history(
+        response = langchain_plus_cohere_conversation_without_history(
             user_question, retriever_filter, fetched_missing_pdfs
         )
 
@@ -862,7 +841,7 @@ def serper_search(final_question):
     ]
 
     lc_messages = convert_openai_messages(prompt)
-    answer = openAIChatClient.invoke(lc_messages).content
+    answer = cohereChatClient.invoke(lc_messages).content
     response = {
         "answer": answer,
         "references": references,
@@ -899,7 +878,7 @@ def tavily_search(final_question):
         ]
 
         lc_messages = convert_openai_messages(prompt)
-        answer = openAIChatClient.invoke(lc_messages).content
+        answer = cohereChatClient.invoke(lc_messages).content
         response = {"answer": answer, "references": references}
 
         return response
