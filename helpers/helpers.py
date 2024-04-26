@@ -60,7 +60,6 @@ SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 
 
-
 s3_client = boto3.client(
     service_name="s3",
     region_name=AWS_REGION,
@@ -455,6 +454,78 @@ def langchain_conversation_without_history(
     return {"answer": answer, "pdfs_and_pages": pdfs_and_pages, "status": 200}
 
 
+def extract_serper_search_website_name_and_url(data):
+    extracted_data = []
+
+    for item in data.get("organic", []):
+        parsed_url = urlparse(item["link"])
+        domain_name = parsed_url.netloc.replace("www.", "")
+        extracted_data.append({"website_name": domain_name, "url": item["link"]})
+
+    return extracted_data
+
+
+def serper_search(final_question):
+    try:
+        url = "https://google.serper.dev/search"
+        payload = json.dumps(
+            {
+                "q": final_question,
+                "gl": "gb",
+                "type": "search",
+                "location": "United Kingdom",
+                "num": 11,
+                "engine": "google",
+            }
+        )
+        headers = {
+            "X-API-KEY": SERPER_API_KEY,
+            "Content-Type": "application/json",
+        }
+
+        serper_response = requests.request("POST", url, headers=headers, data=payload)
+        serper_data = serper_response.json()
+        serper_array = serper_data["organic"]
+        references = extract_serper_search_website_name_and_url(serper_data)
+
+        prompt = [
+            {
+                "role": "system",
+                "content": f"You are a helpful AI research assistant with specialized expertise in medical sciences."
+                f"Your primary function is to synthesize well-structured, critically analyzed, and medically accurate reports based on provided information."
+                f"Your responses should emulate the communication style of a medical professional, incorporating appropriate medical terminology and considerations, and always adhere to the present simple tense for consistency",
+            },
+            {
+                "role": "user",
+                "content": f'Information: """{serper_array}"""\n\n'
+                f"Using the above information, answer the following"
+                f'query: "{final_question}" providing very extensive responses'
+                f"Ensure your response is structured with medical precision, using markdown syntax for clarity and professionalism. Never include references in your response",
+            },
+        ]
+
+        lc_messages = convert_openai_messages(prompt)
+        answer = cohereChatClient.invoke(lc_messages).content
+        response = {
+            "answer": answer,
+            "references": references,
+            "source": "web_search",
+            "status": 200,
+      
+        }
+
+        return response
+
+    except Exception as e:
+        return {
+            "answer": "",
+            "references": [],
+            "source": "web_search",
+            "status": 400,
+           
+        }
+
+
 def langchain_plus_cohere_conversation_without_history(
     user_question, retriever_filter, fetched_missing_pdfs
 ):
@@ -544,10 +615,6 @@ def langchain_plus_cohere_conversation_without_history(
 
     if reranked_data:
         grade_documents(reranked_data)
-        if len(filtered_not_relevant_ranked_data) > len(filtered_relevant_ranked_data):
-            pass
-            # Do API search instead
-            # serper_search(user_question)
 
     if filtered_relevant_ranked_data and filtered_not_relevant_ranked_data:
         # Measure the end time for OpenAI calls
@@ -654,6 +721,8 @@ def langchain_plus_cohere_conversation_without_history(
                 "answer": final_response,
                 "pdfs_and_pages": pdfs_and_pages[:6],
                 "status": 200,
+                "source": "knowledge_base",
+          
             }
         except Exception as e:
             print(f"An error occurred while generating response: {e}")
@@ -661,10 +730,16 @@ def langchain_plus_cohere_conversation_without_history(
                 "answer": "An error occurred while generating response.",
                 "pdfs_and_pages": [],
                 "status": 500,
+             
             }
     else:
-        print("No relevant documents found. Unable to provide a final response.")
-        return {"answer": "I don't know", "pdfs_and_pages": [], "status": 200}
+        response = serper_search(user_question)
+        if response:
+            return response
+      
+
+        # print("No relevant documents found. Unable to provide a final response.")
+        # return {"answer": "I don't know", "pdfs_and_pages": [], "status": 200}
 
 
 def conversation_chain(
@@ -789,65 +864,6 @@ def extract_tavily_search_website_name_and_url(data):
         extracted_data.append({"website_name": domain_name, "url": item["url"]})
 
     return extracted_data
-
-
-def extract_serper_search_website_name_and_url(data):
-    extracted_data = []
-
-    for item in data.get("organic", []):
-        parsed_url = urlparse(item["link"])
-        domain_name = parsed_url.netloc.replace("www.", "")
-        extracted_data.append({"website_name": domain_name, "url": item["link"]})
-
-    return extracted_data
-
-
-def serper_search(final_question):
-    url = "https://google.serper.dev/search"
-    payload = json.dumps(
-        {
-            "q": final_question,
-            "gl": "gb",
-            "type": "search",
-            "location": "United Kingdom",
-            "num": 11,
-            "engine": "google",
-        }
-    )
-    headers = {
-        "X-API-KEY": SERPER_API_KEY,
-        "Content-Type": "application/json",
-    }
-
-    serper_response = requests.request("POST", url, headers=headers, data=payload)
-    serper_data = serper_response.json()
-    serper_array = serper_data["organic"]
-    references = extract_serper_search_website_name_and_url(serper_data)
-
-    prompt = [
-        {
-            "role": "system",
-            "content": f"You are a helpful AI research assistant with specialized expertise in medical sciences."
-            f"Your primary function is to synthesize well-structured, critically analyzed, and medically accurate reports based on provided information."
-            f"Your responses should emulate the communication style of a medical professional, incorporating appropriate medical terminology and considerations, and always adhere to the present simple tense for consistency",
-        },
-        {
-            "role": "user",
-            "content": f'Information: """{serper_array}"""\n\n'
-            f"Using the above information, answer the following"
-            f'query: "{final_question}" providing very extensive responses'
-            f"Ensure your response is structured with medical precision, using markdown syntax for clarity and professionalism. Never include references in your response",
-        },
-    ]
-
-    lc_messages = convert_openai_messages(prompt)
-    answer = cohereChatClient.invoke(lc_messages).content
-    response = {
-        "answer": answer,
-        "references": references,
-    }
-
-    return response
 
 
 def tavily_search(final_question):
