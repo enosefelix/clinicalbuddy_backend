@@ -173,6 +173,7 @@ def get_conversation_chain():
 
     try:
         token_expired = check_token_expired(user_name, session_id, session_obj)
+       
 
         # using concurrency to improve latency
         future_chain_response = executor.submit(

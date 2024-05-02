@@ -40,6 +40,10 @@ from langchain_core.runnables import (
     RunnableBranch,
 )
 from langchain_cohere import ChatCohere
+from langchain_community.llms import Ollama
+import threading
+
+ollamaChatClient = Ollama(model="llama3")
 
 
 # Configure logging
@@ -511,7 +515,6 @@ def serper_search(final_question):
             "references": references,
             "source": "web_search",
             "status": 200,
-      
         }
 
         return response
@@ -522,7 +525,6 @@ def serper_search(final_question):
             "references": [],
             "source": "web_search",
             "status": 400,
-           
         }
 
 
@@ -551,7 +553,7 @@ def langchain_plus_cohere_conversation_without_history(
     prompt_hyde = ChatPromptTemplate.from_template(template)
 
     generated_answers = (
-        prompt_hyde | cohereChatClient | StrOutputParser() | (lambda x: x.split("\n"))
+        prompt_hyde | openAIChatClient | StrOutputParser() | (lambda x: x.split("\n"))
     )
 
     # Using rag fusion to rerank order of retrieved documents
@@ -722,7 +724,6 @@ def langchain_plus_cohere_conversation_without_history(
                 "pdfs_and_pages": pdfs_and_pages[:6],
                 "status": 200,
                 "source": "knowledge_base",
-          
             }
         except Exception as e:
             print(f"An error occurred while generating response: {e}")
@@ -730,16 +731,12 @@ def langchain_plus_cohere_conversation_without_history(
                 "answer": "An error occurred while generating response.",
                 "pdfs_and_pages": [],
                 "status": 500,
-             
             }
     else:
         response = serper_search(user_question)
+
         if response:
             return response
-      
-
-        # print("No relevant documents found. Unable to provide a final response.")
-        # return {"answer": "I don't know", "pdfs_and_pages": [], "status": 200}
 
 
 def conversation_chain(
@@ -781,6 +778,16 @@ def conversation_chain(
             retriever_filter = qdrant_vector_embedding.as_retriever(
                 search_kwargs={"k": 5}
             )
+
+        # print("ret fil>>>", retriever_filter)
+        print(
+            "selected pdf >>>>>>",
+            user_question,
+            selected_pdf,
+            cluster,
+            user_name,
+            session_id,
+        )
 
         response = langchain_plus_cohere_conversation_without_history(
             user_question, retriever_filter, fetched_missing_pdfs
