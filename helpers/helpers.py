@@ -74,7 +74,8 @@ s3_client = boto3.client(
 cohereChatClient = ChatCohere(model="command-r")
 openAIChatClient = ChatOpenAI(
     temperature=0.0,
-    model="gpt-3.5-turbo-0125",
+    # model="gpt-3.5-turbo-0125",
+    model="gpt-4o",
 )
 
 co = cohere.Client(COHERE_API_KEY)
@@ -509,7 +510,7 @@ def serper_search(final_question):
         ]
 
         lc_messages = convert_openai_messages(prompt)
-        answer = cohereChatClient.invoke(lc_messages).content
+        answer = openAIChatClient.invoke(lc_messages).content
         response = {
             "answer": answer,
             "references": references,
@@ -529,7 +530,7 @@ def serper_search(final_question):
 
 
 def langchain_plus_cohere_conversation_without_history(
-    user_question, retriever_filter, fetched_missing_pdfs
+    user_question, question_history, retriever_filter, fetched_missing_pdfs
 ):
     filtered_relevant_ranked_data = []
     filtered_not_relevant_ranked_data = []
@@ -552,9 +553,13 @@ def langchain_plus_cohere_conversation_without_history(
     Question: {question}"""
     prompt_hyde = ChatPromptTemplate.from_template(template)
 
+    # print("prompt hyde >>", prompt_hyde)
+
     generated_answers = (
         prompt_hyde | openAIChatClient | StrOutputParser() | (lambda x: x.split("\n"))
     )
+
+    # print("generated answers >>", generated_answers)
 
     # Using rag fusion to rerank order of retrieved documents
     reranked_retriever_chain = (
@@ -674,22 +679,56 @@ def langchain_plus_cohere_conversation_without_history(
         )
 
         try:
-            response_prompt = f"""
-            ##Context
-            Below is relavant context: {filtered_relevant_ranked_data}
+            # <-------cohere------->
+            # response_prompt = f"""
+            # ##Context
+            # Below is relavant context: {filtered_relevant_ranked_data}
 
-            ## User Question
-            Here is the user's question: {user_question} \n
+            # ## User Question
+            # Here is the user's question: {user_question} \n
 
-            ## Instructions
-            You are a helpful AI assistant. 
-            BASED ON THE PROVIDED CONTEXT, answer the user's question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. ALWAYS use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency and ensure your answers are ALWAYS grounded in the context and relevant to the question. If the materials are not relevant or complete enough to confidently answer the user's questions, your best response is 'the materials do not appear to be sufficent to provide a good answer'."
-            """
+            # ## Instructions
+            # You are a helpful AI assistant.
+            # BASED ON THE PROVIDED CONTEXT, answer the user's question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. ALWAYS use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency and ensure your answers are ALWAYS grounded in the context and relevant to the question. If the materials are not relevant or complete enough to confidently answer the user's questions, your best response is 'the materials do not appear to be sufficent to provide a good answer'."
+            # """
 
-            response = co.chat(
-                message=response_prompt, model="command-r", temperature=0.0
+            # response = co.chat(
+            #     message=response_prompt, model="command-r", temperature=0.0
+            # )
+            # final_response = response.text
+            # <-------cohere------->
+
+            # <-------Open ai------->
+
+            print("question hx>>", question_history)
+            response_prompt = f"""Use only the context below to answer the subsequent question.
+            Context:
+            \"\"\"
+            {filtered_relevant_ranked_data}
+            \"\"\"
+            Question: {user_question}"""
+
+            messages = [
+                {
+                    "role": "system",
+                    "content": " Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. Never add reference.",
+                },
+                {"role": "user", "content": response_prompt},
+            ]
+
+            if question_history:  # Check if question_history is not empty
+                for question in question_history:
+                    messages.append({"role": "user", "content": question})
+
+            response = openAIClient.chat.completions.create(
+                messages=messages,
+                model="gpt-4o",
+                temperature=0,
+                seed=123,
             )
-            final_response = response.text
+
+            final_response = response.choices[0].message.content
+            # <-------Open ai------->
 
             # if final_response:
             #     end_time_final_response = time.time()
@@ -741,6 +780,7 @@ def langchain_plus_cohere_conversation_without_history(
 
 def conversation_chain(
     user_question,
+    question_history,
     selected_pdf,
     qdrant_vector_embedding,
     cluster,
@@ -790,7 +830,7 @@ def conversation_chain(
         )
 
         response = langchain_plus_cohere_conversation_without_history(
-            user_question, retriever_filter, fetched_missing_pdfs
+            user_question, question_history, retriever_filter, fetched_missing_pdfs
         )
 
         # response = langchain_conversation_without_history(
@@ -813,7 +853,8 @@ def transcribe_audio(file_bytes, file_type, content_type):
     )
 
     corrected_transcript = openAIClient.chat.completions.create(
-        model="gpt-3.5-turbo-0125",
+        # model="gpt-3.5-turbo-0125",
+        model="gpt-4o",
         temperature=0,
         messages=[
             {"role": "system", "content": system_prompt},

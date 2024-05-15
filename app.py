@@ -165,6 +165,7 @@ def get_conversation_chain():
     verify_jwt_in_request()
     data = request.get_json()
     user_question = data.get("question")
+    question_history = data.get("question_history")
     selected_pdf = data.get("selected_pdf")
     cluster = data.get("cluster")
     user_name = get_jwt_identity()
@@ -173,12 +174,12 @@ def get_conversation_chain():
 
     try:
         token_expired = check_token_expired(user_name, session_id, session_obj)
-       
 
         # using concurrency to improve latency
         future_chain_response = executor.submit(
             conversation_chain,
             user_question,
+            question_history,
             selected_pdf,
             qdrant_vector_embedding,
             cluster,
@@ -296,6 +297,7 @@ def get_missing_pdfs():
     session_id = request.args.get("session_id", type=str)
     user_name = get_jwt_identity()
     token_expired = check_token_expired(user_name, session_id, session_obj)
+
 
     response = fetch_missing_pdfs_from_firestore(cluster, session_id, token_expired)
     if len(response) > 0:
