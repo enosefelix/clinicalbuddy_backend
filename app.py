@@ -1,12 +1,18 @@
 import os
 import io
 import requests
+import asyncio
 import uuid
 import logging
 import hashlib
-from helpers.constants import LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL
+from helpers.conversation_helpers import (
+    serper_search,
+    tavily_search,
+    transcribe_audio,
+)
+from config.constants import LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL
 from werkzeug.utils import secure_filename
-from helpers.helpers import conversation_chain
+from helpers.core import conversation_chain
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from flask import Flask, jsonify, request, send_file
@@ -86,13 +92,9 @@ from firestore.firestore import (
     update_accept_disclaimer_field,
 )
 
-from helpers.helpers import (
+from helpers.pdf_helpers import (
     upload_pdf_to_qdrant,
     upload_pdf_to_s3bucket_and_get_info,
-    transcribe_audio,
-    tavily_search,
-    serper_search,
-    question_with_memory,
     delete_pdf_from_s3bucket,
 )
 
@@ -106,21 +108,13 @@ def external_search():
         session_id = data.get("session_id")
         request_origin = request.headers.get("Origin")
 
-        if user_question is None:
-            return jsonify({"error": "Question not provided in JSON payload"}), 400
-
         if user_question.strip() == "":
             return jsonify({"error": "User question is empty"}), 400
 
-        final_question = question_with_memory(user_question, session_id)
-
-        if final_question.strip() == "":
-            return jsonify({"error": "Final question is empty or None"}), 400
-
         results = (
-            tavily_search(final_question)
+            tavily_search(user_question)
             if request_origin == LOCAL_FRONT_END_URL
-            else serper_search(final_question)
+            else serper_search(user_question)
         )
 
         return jsonify(results)
@@ -297,7 +291,6 @@ def get_missing_pdfs():
     session_id = request.args.get("session_id", type=str)
     user_name = get_jwt_identity()
     token_expired = check_token_expired(user_name, session_id, session_obj)
-
 
     response = fetch_missing_pdfs_from_firestore(cluster, session_id, token_expired)
     if len(response) > 0:
