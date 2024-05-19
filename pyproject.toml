@@ -33,6 +33,7 @@ openai = "^1.12.0"
 tavily-python = "^0.3.1"
 cohere = "^5.2.2"
 langchain-cohere = "^0.1.0"
+instructor = "^1.2.6"
 
 [build-system]
 requires = ["poetry-core"]

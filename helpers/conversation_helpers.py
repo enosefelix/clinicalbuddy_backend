@@ -2,8 +2,8 @@ import os
 import io
 import json
 import cohere
-import threading
 import requests
+import instructor
 from openai import OpenAI
 from tavily import TavilyClient
 from dotenv import load_dotenv
@@ -13,6 +13,9 @@ from langchain.load import dumps, loads
 from langchain_openai import ChatOpenAI
 from config.constants import DOMAINS, MED_PROMPTS
 from langchain.adapters.openai import convert_openai_messages
+from pydantic import BaseModel, BeforeValidator
+from typing_extensions import Annotated
+from instructor import llm_validator
 
 
 load_dotenv()
@@ -32,6 +35,22 @@ openAIChatClient = ChatOpenAI(
     # model="gpt-3.5-turbo-0125",
     model="gpt-4o",
 )
+
+instructor_client = instructor.from_openai(openAIClient)
+
+
+class QuestionAnswer(BaseModel):
+    # answer: str = Field(description="answer to the question")
+    answer: Annotated[
+        str,
+        BeforeValidator(
+            llm_validator(
+                "don't say objectionable things",
+                client=instructor_client,
+                allow_override=True,
+            )
+        ),
+    ]
 
 
 # Helper functions
@@ -236,6 +255,40 @@ def generate_final_response_with_openai(
     return response.choices[0].message.content
 
 
+def generate_structured_response_with_instructor_openai(
+    filtered_relevant_ranked_data,
+    user_question,
+):
+    response_prompt = f"""Use only the context below to answer the subsequent question.
+    Context:
+    \"\"\"
+    {filtered_relevant_ranked_data}
+    \"\"\"
+    Question: {user_question}"""
+
+    try:
+        response = instructor_client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": " Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. Never add reference.",
+                },
+                {"role": "user", "content": response_prompt},
+            ],
+            model="gpt-4o",
+            response_model=QuestionAnswer,
+            temperature=0,
+            seed=123,
+            max_retries=3,
+        )
+
+        response_dict = response.dict()
+        return response_dict.get("answer")
+
+    except Exception as e:
+        return e
+
+
 def transcribe_audio(file_bytes, file_type, content_type):
     system_prompt = "You are a helpful AI assistant that helps users search through clinical and medical guidelines. Accept the user question, correct any typographical errors and return the users exact words, Do not answer the questions, just return the exact question"
 
@@ -256,25 +309,3 @@ def transcribe_audio(file_bytes, file_type, content_type):
     )
 
     return corrected_transcript.choices[0].message.content
-
-
-def run_with_timeout(func, args=(), timeout=7):
-    result = [None]
-    exception = [None]
-
-    def target():
-        try:
-            result[0] = func(*args)
-        except Exception as e:
-            exception[0] = e
-
-    thread = threading.Thread(target=target)
-    thread.start()
-    thread.join(timeout)
-    if thread.is_alive():
-        # If the thread is still alive after the timeout, it means it's taking too long
-        raise TimeoutError
-    if exception[0] is not None:
-        # If an exception occurred in the thread, raise it
-        raise exception[0]
-    return result[0]

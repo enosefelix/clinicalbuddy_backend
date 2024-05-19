@@ -13,6 +13,7 @@ from helpers.conversation_helpers import (
     generate_final_response_with_openai,
     serper_search,
     openAIChatClient,
+    generate_structured_response_with_instructor_openai,
 )
 
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
@@ -169,7 +170,7 @@ def conversation(
         )
         try:
 
-            final_response = generate_final_response_with_openai(
+            final_response = generate_structured_response_with_instructor_openai(
                 filtered_relevant_ranked_data, user_question
             )
 
