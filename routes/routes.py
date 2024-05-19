@@ -87,7 +87,7 @@ class Routes:
         app = self.app
 
         @app.route("/api/external-search", methods=["POST", "OPTIONS"])
-        @cross_origin(origins=LOCAL_FRONT_END_URL)
+        @cross_origin(origins=FRONT_END_URLS)
         def external_search():
             try:
                 data = request.get_json()
@@ -100,7 +100,7 @@ class Routes:
 
                 results = (
                     tavily_search(user_question)
-                    if request_origin == LOCAL_FRONT_END_URL
+                    if request_origin == FRONT_END_URLS
                     else serper_search(user_question)
                 )
 
@@ -116,7 +116,7 @@ class Routes:
                 )
 
         @app.route("/api/upload-audio", methods=["POST", "OPTIONS"])
-        @cross_origin(origins=LOCAL_FRONT_END_URL)
+        @cross_origin(origins=FRONT_END_URLS)
         def upload_audio():
             if "audio" not in request.files:
                 return jsonify({"error": "No file part"}), 400
@@ -142,7 +142,7 @@ class Routes:
 
         @jwt_required()
         @app.route("/api/conversation_chain", methods=["POST", "OPTIONS"])
-        @cross_origin(origins=LOCAL_FRONT_END_URL)
+        @cross_origin(origins=FRONT_END_URLS)
         def get_conversation_chain():
             verify_jwt_in_request()
             data = request.get_json()
@@ -177,7 +177,7 @@ class Routes:
 
         @jwt_required()
         @app.route("/api/bookmarks", methods=["GET", "OPTIONS"])
-        @cross_origin(origins=LOCAL_FRONT_END_URL)
+        @cross_origin(origins=FRONT_END_URLS)
         def get_bookmarks():
             verify_jwt_in_request()
             user_name = get_jwt_identity()
@@ -199,7 +199,7 @@ class Routes:
 
         @jwt_required()
         @app.route("/api/delete_bookmark", methods=["DELETE", "OPTIONS"])
-        @cross_origin(origins=LOCAL_FRONT_END_URL)
+        @cross_origin(origins=FRONT_END_URLS)
         def delete_bookmark():
             verify_jwt_in_request()
             data = request.get_json()
@@ -222,7 +222,7 @@ class Routes:
 
         @jwt_required()
         @app.route("/api/add_bookmark", methods=["POST", "OPTIONS"])
-        @cross_origin(origins=LOCAL_FRONT_END_URL)
+        @cross_origin(origins=FRONT_END_URLS)
         def add_bookmark():
             verify_jwt_in_request()
             bookmark = request.get_json()
@@ -239,7 +239,7 @@ class Routes:
                 return jsonify({"status": 400})
 
         @app.route("/api/get_pdf", methods=["GET", "OPTIONS"])
-        @cross_origin(origins=LOCAL_FRONT_END_URL)
+        @cross_origin(origins=FRONT_END_URLS)
         def get_pdf():
             try:
                 # Get the URL parameter from the request
@@ -262,7 +262,7 @@ class Routes:
 
         @jwt_required()
         @app.route("/api/missing_pdfs", methods=["GET", "OPTIONS"])
-        @cross_origin(origins=LOCAL_FRONT_END_URL)
+        @cross_origin(origins=FRONT_END_URLS)
         def get_missing_pdfs():
             verify_jwt_in_request()
             cluster = request.args.get("cluster", type=str)
@@ -292,7 +292,7 @@ class Routes:
         @app.route(
             "/api/update_multiple_missing_pdfs_category", methods=["PATCH", "OPTIONS"]
         )
-        @cross_origin(origins=LOCAL_FRONT_END_URL)
+        @cross_origin(origins=FRONT_END_URLS)
         def update_multiple_missing_pdfs_category():
             verify_jwt_in_request()
             data = request.get_json()
