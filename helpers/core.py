@@ -11,6 +11,7 @@ from helpers.conversation_helpers import (
     reciprocal_rank_fusion,
     grade_docs_with_cohere,
     generate_final_response_with_openai,
+    generate_final_response_with_cohere,
     serper_search,
     openAIChatClient,
     generate_structured_response_with_instructor_openai,
@@ -89,10 +90,13 @@ def conversation(
         """
 
         try:
-            return grade_docs_with_openai(prompt_rag=prompt_rag)
+            return grade_docs_with_cohere(prompt_rag=prompt_rag)
 
-        except Exception as e:
-            raise Exception(f"An error occurred while checking relevance: {e}")
+        except Exception as e_openai:
+            try:
+                return grade_docs_with_openai(prompt_rag=prompt_rag)
+            except Exception as e_cohere:
+                return f"Error while grading documents { e_cohere, e_openai}"
 
     def grade_documents(data_list):
         for i, document_data in enumerate(data_list, start=1):
@@ -168,39 +172,52 @@ def conversation(
         print(
             "Filtered relevant ranked data found. Proceeding with generating response."
         )
-        try:
 
+        try:
+            # Try to generate the final response with OpenAI
             final_response = generate_structured_response_with_instructor_openai(
                 filtered_relevant_ranked_data, user_question
             )
+        except Exception as e_openai:
+            try:
+                # Try to generate the final response with Cohere
+                final_response = generate_final_response_with_cohere(
+                    filtered_relevant_ranked_data, user_question
+                )
+            except Exception as e_cohere:
+                return {
+                    "answer": "An error occurred while generating response with both OpenAI and Cohere.",
+                    "pdfs_and_pages": [],
+                    "status": 500,
+                }
 
-            end_time_total = time.time()
-            print(
-                "End time for the entire process:",
-                datetime.fromtimestamp(end_time_total).strftime("%I:%M %p"),
-            )
+        # End time for the entire process
+        end_time_total = time.time()
+        print(
+            "End time for the entire process:",
+            datetime.fromtimestamp(end_time_total).strftime("%I:%M %p"),
+        )
 
-            # Calculate the total elapsed time for the entire process
-            elapsed_time_total = end_time_total - start_time_total
-            print("Total elapsed time: {:.2f} seconds".format(elapsed_time_total))
-            return {
-                "answer": final_response,
-                "pdfs_and_pages": pdfs_and_pages[:6],
-                "status": 200,
-                "source": "knowledge_base",
-            }
-        except Exception as e:
-            print(f"An error occurred while generating response: {e}")
-            return {
-                "answer": "An error occurred while generating response.",
-                "pdfs_and_pages": [],
-                "status": 500,
-            }
+        # Calculate the total elapsed time for the entire process
+        elapsed_time_total = end_time_total - start_time_total
+        print("Total elapsed time: {:.2f} seconds".format(elapsed_time_total))
+
+        return {
+            "answer": final_response,
+            "pdfs_and_pages": pdfs_and_pages[:6],
+            "status": 200,
+            "source": "knowledge_base",
+        }
     else:
         response = serper_search(user_question)
-
         if response:
             return response
+        else:
+            return {
+                "answer": "No relevant data found and search did not yield results.",
+                "pdfs_and_pages": [],
+                "status": 404,
+            }
 
 
 def conversation_chain(
