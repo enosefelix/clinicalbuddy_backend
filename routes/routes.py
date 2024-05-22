@@ -350,10 +350,10 @@ class Routes:
                 category = request.form.get("category")
                 cluster = request.form.get("cluster")
                 session_id = request.form.get("session_id")
-                token_expired = check_token_expired(user_name, session_id, self.session_obj)
+                # token_expired = self.check_token_expired(user_name, session_id, self.session_obj)
 
                 fetched_pdfs = fetch_missing_pdfs_from_firestore(
-                    cluster, session_id, token_expired
+                    cluster, session_id, False
                 )
 
                 for uploaded_file in uploaded_files:
