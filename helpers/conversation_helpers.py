@@ -1,56 +1,27 @@
 import os
 import io
 import json
-import cohere
+import functools
 import requests
-import instructor
-from openai import OpenAI
 from tavily import TavilyClient
 from dotenv import load_dotenv
 from urllib.parse import urlparse
-from langchain_cohere import ChatCohere
 from langchain.load import dumps, loads
-from langchain_openai import ChatOpenAI
 from config.constants import DOMAINS, MED_PROMPTS
 from langchain.adapters.openai import convert_openai_messages
-from pydantic import BaseModel, BeforeValidator
-from typing_extensions import Annotated
-from instructor import llm_validator
-
-
-load_dotenv()
-
-# Api Keys
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-SERPER_API_KEY = os.getenv("SERPER_API_KEY")
-COHERE_API_KEY = os.getenv("COHERE_API_KEY")
-
-# LLM clients
-co = cohere.Client(COHERE_API_KEY)
-openAIClient = OpenAI()
-cohereChatClient = ChatCohere(model="command-r")
-openAIChatClient = ChatOpenAI(
-    temperature=0.0,
-    # model="gpt-3.5-turbo-0125",
-    model="gpt-4o",
+from models.models import Fact, Document
+from typing import List
+from config.clients import (
+    openAIChatClient,
+    openAIClient,
+    instructor_client,
+    cohereChatClient,
+    co,
 )
 
-instructor_client = instructor.from_openai(openAIClient)
-
-
-class QuestionAnswer(BaseModel):
-    # answer: str = Field(description="answer to the question")
-    answer: Annotated[
-        str,
-        BeforeValidator(
-            llm_validator(
-                "don't say objectionable things",
-                client=instructor_client,
-                allow_override=True,
-            )
-        ),
-    ]
+load_dotenv()
+SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 
 # Helper functions
@@ -200,93 +171,12 @@ def grade_docs_with_openai(prompt_rag):
             {"role": "system", "content": " You are a helpful ai assistant"},
             {"role": "user", "content": prompt_rag},
         ],
-        model="gpt-4o",
+        model="gpt-3.5-turbo-0125",
         response_format={"type": "json_object"},
         temperature=0,
         seed=123,
     )
     return response.choices[0].message.content
-
-
-def generate_final_response_with_cohere(
-    filtered_relevant_ranked_data,
-    user_question,
-):
-
-    response_prompt = f"""
-    ##Context
-    Below is relevant context: {filtered_relevant_ranked_data}
-
-    ## User Question
-    Here is the user's question: {user_question} \n
-
-    ## Instructions
-    You are a helpful AI assistant.
-    BASED ON THE PROVIDED CONTEXT, answer the user's question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. ALWAYS use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency and ensure your answers are ALWAYS grounded in the context and relevant to the question. If the materials are not relevant or complete enough to confidently answer the user's questions, your best response is 'the materials do not appear to be sufficient to provide a good answer'."
-    """
-    response = co.chat(message=response_prompt, model="command-r", temperature=0.0)
-    return response.text
-
-
-def generate_final_response_with_openai(
-    filtered_relevant_ranked_data,
-    user_question,
-):
-    response_prompt = f"""Use only the context below to answer the subsequent question.
-    Context:
-    \"\"\"
-    {filtered_relevant_ranked_data}
-    \"\"\"
-    Question: {user_question}"""
-
-    response = openAIClient.chat.completions.create(
-        messages=[
-            {
-                "role": "system",
-                "content": " Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. Never add reference.",
-            },
-            {"role": "user", "content": response_prompt},
-        ],
-        model="gpt-4o",
-        temperature=0,
-        seed=123,
-    )
-
-    return response.choices[0].message.content
-
-
-def generate_structured_response_with_instructor_openai(
-    filtered_relevant_ranked_data,
-    user_question,
-):
-    response_prompt = f"""Use only the context below to answer the subsequent question.
-    Context:
-    \"\"\"
-    {filtered_relevant_ranked_data}
-    \"\"\"
-    Question: {user_question}"""
-
-    try:
-        response = instructor_client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": " Utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. Never add reference.",
-                },
-                {"role": "user", "content": response_prompt},
-            ],
-            model="gpt-4o",
-            response_model=QuestionAnswer,
-            temperature=0,
-            seed=123,
-            max_retries=3,
-        )
-
-        response_dict = response.dict()
-        return response_dict.get("answer")
-
-    except Exception as e:
-        return e
 
 
 def transcribe_audio(file_bytes, file_type, content_type):
@@ -309,3 +199,64 @@ def transcribe_audio(file_bytes, file_type, content_type):
     )
 
     return corrected_transcript.choices[0].message.content
+
+
+def generate_final_response_with_cohere(
+    filtered_relevant_ranked_data,
+    user_question,
+):
+
+    response_prompt = f"""
+    ##Context
+    Below is relevant context: {filtered_relevant_ranked_data}
+
+    ## User Question
+    Here is the user's question: {user_question} \n
+
+    ## Instructions
+    You are a helpful AI assistant.
+    BASED ON THE PROVIDED CONTEXT, answer the user's question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. ALWAYS use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency and ensure your answers are ALWAYS grounded in the context and relevant to the question. If the materials are not relevant or complete enough to confidently answer the user's questions, your best response is 'the materials do not appear to be sufficient to provide a good answer'."
+    """
+    response = co.chat(message=response_prompt, model="command-r", temperature=0.0)
+    return response.text
+
+
+def open_ai(question: str, context: List[Document]) -> Fact:
+    ques = question
+
+    @functools.cache
+    def ai_call(ques):
+        response = instructor_client.chat.completions.create(
+            model="gpt-4o",
+            temperature=0,
+            response_model=Fact,
+            max_retries=3,
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"You are a helful AI research assistant with specialized expertise in medical sciences."
+                    f"Your primary function is to synthesize well-structured, critically analyzed, and medically accurate reports based on provided information."
+                    f"Your responses should emulate the communication style of a medical professional, incorporating appropriate medical terminology and considerations, and always adhere to the present simple tense for consistency",
+                },
+                {"role": "user", "content": f"{context}"},
+                {"role": "user", "content": f"Question: {question}"},
+            ],
+            validation_context={"text_chunk": context},
+        )
+        return response
+
+    return ai_call(ques)
+
+
+def generate_response_with_instructor_openai(
+    user_question,
+    filtered_relevant_ranked_data,
+):
+
+    try:
+        fact = open_ai(user_question, filtered_relevant_ranked_data)
+        response_dict = fact.dict()
+        return response_dict
+
+    except Exception as e:
+        return e

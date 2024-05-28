@@ -8,7 +8,7 @@ from helpers.conversation_helpers import (
     tavily_search,
     transcribe_audio,
 )
-from config.constants import LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL
+from config.constants import LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL, VERCEL_URL
 from werkzeug.utils import secure_filename
 from helpers.core import conversation_chain
 from concurrent.futures import ThreadPoolExecutor
@@ -34,7 +34,7 @@ executor = ThreadPoolExecutor()
 # Load environment variables
 load_dotenv()
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
-FRONT_END_URLS = [LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL]
+FRONT_END_URLS = [LOCAL_FRONT_END_URL, PRODUCTION_FRONT_END_URL, VERCEL_URL]
 
 
 from qdrant.qdrant import (
@@ -100,7 +100,7 @@ class Routes:
 
                 results = (
                     tavily_search(user_question)
-                    if request_origin == FRONT_END_URLS
+                    if request_origin == LOCAL_FRONT_END_URL
                     else serper_search(user_question)
                 )
 
@@ -321,6 +321,7 @@ class Routes:
                     pdf_name,
                     user_name,
                 )
+
                 delete_pdf_from_missing_pdfs(pdf_name, user_name)
 
                 return jsonify(
