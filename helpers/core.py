@@ -19,142 +19,6 @@ from helpers.conversation_helpers import (
 
 
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
-filtered_relevant_ranked_data_all = []
-filtered_relevant_ranked_data_selected = []
-
-
-def check_document_relevance(page_content, user_question, request_origin):
-    prompt_rag = f"""You are a grader assessing relevance of a retrieved document to a user question. \n
-        Here is the retrieved document: \n\n {page_content} \n\n
-        Here is the user question: {user_question} \n
-        If the document contains keywords or phrases directly related to the user question, grade it as relevant. \n
-        It doesnt need to be a stringent test. The goal is to filter out erroneous retrievals. \n
-        Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question. \n
-        Provide the binary score as a JSON with a single key 'score' and no preamble or explanation. Only ouput the object without any text.
-    """
-
-    try:
-        if request_origin != LOCAL_FRONT_END_URL:
-            return grade_docs_with_cohere(prompt_rag=prompt_rag)
-        else:
-            return grade_docs_with_openai(prompt_rag=prompt_rag)
-
-    except Exception as e_openai:
-        try:
-            return grade_docs_with_openai(prompt_rag=prompt_rag)
-        except Exception as e_cohere:
-            return f"Error while grading documents { e_cohere, e_openai}"
-
-
-def grade_documents(reranked_data, user_question, request_origin, selected):
-    for i, document_data in enumerate(reranked_data, start=1):
-        page_content = None
-        if selected == True:
-            page_content = document_data.page_content
-        else:
-            page_content = document_data[0].page_content
-        try:
-            res = check_document_relevance(page_content, user_question, request_origin)
-            if res is not None:
-                res_json = json.loads(res)
-                if res_json.get("score") == "yes":
-                    print(f"---GRADE: DOCUMENT {i} RELEVANT---")
-                    if selected == True:
-                        filtered_relevant_ranked_data_selected.append(document_data)
-                    else:
-                        filtered_relevant_ranked_data_all.append(document_data)
-                else:
-                    print(f"---GRADE: DOCUMENT {i} NOT RELEVANT---")
-
-        except Exception as e:
-            raise Exception(f"An error occurred while grading documents: {e}")
-
-
-def generate_response_with_citations(
-    user_question, filtered_relevant_ranked_data, fetched_missing_pdfs
-):
-    # Generate the response using the provided method
-    response_dict = generate_response_with_instructor_openai(
-        user_question, filtered_relevant_ranked_data
-    )
-    answer = response_dict.get("answer")
-    citations = response_dict.get("citations")
-    citation_dict = {}
-
-    # Process the citations
-
-    if citations:
-        for citation in citations:
-            source = citation.get("source")
-            page_num = citation.get("page_num")
-            quote = citation.get("quote")
-
-            if source:
-                pdf_name = source
-                pdf_info = next(
-                    (
-                        pdf_info
-                        for pdf_info in fetched_missing_pdfs
-                        if pdf_info["pdf_name"] == pdf_name
-                    ),
-                    None,
-                )
-                pdf_url = pdf_info["pdf_url"] if pdf_info else None
-
-                if pdf_name not in citation_dict:
-                    citation_dict[pdf_name] = {
-                        "pdf_name": pdf_name,
-                        "quote_and_pages": [],
-                    }
-
-                if not any(
-                    entry["quote"] == quote and entry["page"] == page_num
-                    for entry in citation_dict[pdf_name]["quote_and_pages"]
-                ):
-                    citation_dict[pdf_name]["quote_and_pages"].append(
-                        {
-                            "quote": quote,
-                            "page": page_num,
-                            "pdf_url": pdf_url,
-                        }
-                    )
-
-    citation_and_pages = [
-        {"pdf_name": key, "quote_and_pages": value["quote_and_pages"]}
-        for key, value in citation_dict.items()
-    ]
-
-    return answer, citation_and_pages
-
-
-def extract_pdfs_and_pages(filtered_relevant_ranked_data, fetched_missing_pdfs):
-    pdf_dict = {}
-
-    for doc, _ in filtered_relevant_ranked_data:
-        pdf_name = doc.metadata.get("source")
-        page_num = doc.metadata.get("page_num")
-
-        if pdf_name not in pdf_dict:
-            pdf_info = next(
-                (
-                    pdf_info
-                    for pdf_info in fetched_missing_pdfs
-                    if pdf_info["pdf_name"] == pdf_name
-                ),
-                None,
-            )
-            pdf_url = pdf_info["pdf_url"] if pdf_info else None
-
-            pdf_dict[pdf_name] = {
-                "pdf_name": pdf_name,
-                "pdf_url": pdf_url,
-                "pages": [],
-            }
-
-        pdf_dict[pdf_name]["pages"].append(page_num)
-
-    pdfs_and_pages = list(pdf_dict.values())
-    return pdfs_and_pages
 
 
 def conversation(
@@ -166,8 +30,142 @@ def conversation(
     selected_pdf,
 ):
 
-    if selected_pdf == "":
+    filtered_relevant_ranked_data_all = []
+    filtered_relevant_ranked_data_selected = []
+
+    def check_document_relevance(page_content, user_question, request_origin):
+        prompt_rag = f"""You are a grader assessing relevance of a retrieved document to a user question. \n
+            Here is the retrieved document: \n\n {page_content} \n\n
+            Here is the user question: {user_question} \n
+            If the document contains keywords or phrases directly related to the user question, grade it as relevant. \n
+            It doesnt need to be a stringent test. The goal is to filter out erroneous retrievals. \n
+            Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question. \n
+            Provide the binary score as a JSON with a single key 'score' and no preamble or explanation. Only ouput the object without any text.
+        """
+
+        try:
+            if request_origin != LOCAL_FRONT_END_URL:
+                return grade_docs_with_cohere(prompt_rag=prompt_rag)
+            else:
+                return grade_docs_with_openai(prompt_rag=prompt_rag)
+
+        except Exception as e_openai:
+            try:
+                return grade_docs_with_openai(prompt_rag=prompt_rag)
+            except Exception as e_cohere:
+                return f"Error while grading documents { e_cohere, e_openai}"
+
+    def grade_documents(reranked_data, user_question, request_origin, selected):
+        for i, document_data in enumerate(reranked_data, start=1):
+            page_content = None
+            if selected == True:
+                page_content = document_data.page_content
+            else:
+                page_content = document_data[0].page_content
+            try:
+                res = check_document_relevance(
+                    page_content, user_question, request_origin
+                )
+                if res is not None:
+                    res_json = json.loads(res)
+                    if res_json.get("score") == "yes":
+                        print(f"---GRADE: DOCUMENT {i} RELEVANT---")
+                        if selected == True:
+                            filtered_relevant_ranked_data_selected.append(document_data)
+                        else:
+                            filtered_relevant_ranked_data_all.append(document_data)
+                    else:
+                        print(f"---GRADE: DOCUMENT {i} NOT RELEVANT---")
+
+            except Exception as e:
+                raise Exception(f"An error occurred while grading documents: {e}")
+
+    def generate_response_with_citations(
+        user_question, filtered_relevant_ranked_data, fetched_missing_pdfs
+    ):
+        # Generate the response using the provided method
+        response_dict = generate_response_with_instructor_openai(
+            user_question, filtered_relevant_ranked_data
+        )
+        answer = response_dict.get("answer")
+        citations = response_dict.get("citations")
+        citation_dict = {}
+
+        # Process the citations
+
+        if citations:
+            for citation in citations:
+                source = citation.get("source")
+                page_num = citation.get("page_num")
+                quote = citation.get("quote")
+
+                if source:
+                    pdf_name = source
+                    pdf_info = next(
+                        (
+                            pdf_info
+                            for pdf_info in fetched_missing_pdfs
+                            if pdf_info["pdf_name"] == pdf_name
+                        ),
+                        None,
+                    )
+                    pdf_url = pdf_info["pdf_url"] if pdf_info else None
+
+                    if pdf_name not in citation_dict:
+                        citation_dict[pdf_name] = {
+                            "pdf_name": pdf_name,
+                            "quote_and_pages": [],
+                        }
+
+                    if not any(
+                        entry["quote"] == quote and entry["page"] == page_num
+                        for entry in citation_dict[pdf_name]["quote_and_pages"]
+                    ):
+                        citation_dict[pdf_name]["quote_and_pages"].append(
+                            {
+                                "quote": quote,
+                                "page": page_num,
+                                "pdf_url": pdf_url,
+                            }
+                        )
+
+        citation_and_pages = [
+            {"pdf_name": key, "quote_and_pages": value["quote_and_pages"]}
+            for key, value in citation_dict.items()
+        ]
+
+        return answer, citation_and_pages
+
+    def extract_pdfs_and_pages(filtered_relevant_ranked_data, fetched_missing_pdfs):
         pdf_dict = {}
+
+        for doc, _ in filtered_relevant_ranked_data:
+            pdf_name = doc.metadata.get("source")
+            page_num = doc.metadata.get("page_num")
+
+            if pdf_name not in pdf_dict:
+                pdf_info = next(
+                    (
+                        pdf_info
+                        for pdf_info in fetched_missing_pdfs
+                        if pdf_info["pdf_name"] == pdf_name
+                    ),
+                    None,
+                )
+                pdf_url = pdf_info["pdf_url"] if pdf_info else None
+
+                pdf_dict[pdf_name] = {
+                    "pdf_name": pdf_name,
+                    "pdf_url": pdf_url,
+                    "pages": [],
+                }
+
+            pdf_dict[pdf_name]["pages"].append(page_num)
+
+        pdfs_and_pages = list(pdf_dict.values())
+        return pdfs_and_pages
+
+    if selected_pdf == "":
         citation_and_pages = []
         pdfs_and_pages = []
 
