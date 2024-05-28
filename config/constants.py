@@ -3,6 +3,7 @@ from enum import Enum
 
 LOCAL_FRONT_END_URL = "http://localhost:3000"
 PRODUCTION_FRONT_END_URL = "https://www.clinicalbuddy.co.uk"
+PRODUCTION_FRONT_END_URL2 = "https://clinicalbuddy.co.uk"
 VERCEL_URL = "https://clinicalbuddy.vercel.app"
 
 
