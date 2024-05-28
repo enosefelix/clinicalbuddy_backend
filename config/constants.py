@@ -3,7 +3,7 @@ from enum import Enum
 
 LOCAL_FRONT_END_URL = "http://localhost:3000"
 PRODUCTION_FRONT_END_URL = "https://clinicalbuddy.co.uk"
-VERCEL_URL = "https://clinicalbuddy.vercel.app/"
+VERCEL_URL = "https://clinicalbuddy.vercel.app"
 
 
 class UserRoles(Enum):
