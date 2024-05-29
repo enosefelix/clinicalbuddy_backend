@@ -278,10 +278,10 @@ class Routes:
             cluster = request.args.get("cluster", type=str)
             session_id = request.args.get("session_id", type=str)
             user_name = get_jwt_identity()
-            token_expired = self.check_token_expired(user_name, session_id)
+            # token_expired = self.check_token_expired(user_name, session_id)
 
             response = fetch_missing_pdfs_from_firestore(
-                cluster, session_id, token_expired
+                cluster, session_id, 
             )
             if len(response) > 0:
                 return jsonify(
@@ -364,7 +364,7 @@ class Routes:
                 # token_expired = self.check_token_expired(user_name, session_id, self.session_obj)
 
                 fetched_pdfs = fetch_missing_pdfs_from_firestore(
-                    cluster, session_id, False
+                    cluster, session_id, 
                 )
 
                 for uploaded_file in uploaded_files:

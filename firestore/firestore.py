@@ -374,26 +374,20 @@ def add_bookmark_to_firestore(bookmark):
 
     except Exception as upload_error:
         return jsonify({"status": 400, "message": str(upload_error)})
-    
+
 
 def remove_duplicate_pdfs(pdf_objects):
     unique_pdfs = {}
     for pdf_obj in pdf_objects:
-        pdf_name = pdf_obj['pdf_name']
+        pdf_name = pdf_obj["pdf_name"]
         if pdf_name not in unique_pdfs:
             unique_pdfs[pdf_name] = pdf_obj
     return list(unique_pdfs.values())
 
 
-def fetch_missing_pdfs_from_firestore(cluster, session_id, token_expired):
-    global cached_missing_pdfs
+def fetch_missing_pdfs_from_firestore(cluster, session_id):
 
     try:
-        if token_expired:
-            cached_missing_pdfs = {}
-
-        if session_id in cached_missing_pdfs:
-            return cached_missing_pdfs[session_id]
 
         doc_ref = db.collection(FIRESTORE_COLLECTION_NAME).document(
             FIRESTORE_DOCUMENT_NAME

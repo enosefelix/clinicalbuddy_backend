@@ -301,10 +301,11 @@ def conversation_chain(
     request_origin,
 ):
     try:
+      
 
         retriever_filter = None
         fetched_missing_pdfs = fetch_missing_pdfs_from_firestore(
-            cluster, session_id, token_expired
+            cluster, session_id,
         )
 
         is_admin = (
