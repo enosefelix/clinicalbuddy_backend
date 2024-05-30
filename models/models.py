@@ -16,7 +16,7 @@ class Citation(BaseModel):
 
 
 class Fact(BaseModel):
-    """Answer the user question based only on the given sources, and cite the sources used. If none of the documents answer the question, just say you don't know"""
+    """Answer the user question based only on the given sources, and cite the sources used. If none of the documents answer the question, just say you don't know.Never add reference or citations to the answer."""
 
     answer: str = Field(
         description="This is the answer to the question. Answer the user question based ONLY on the given sources, Always utilize use MLA format and Markdown for clarity and organization, ensuring your answers are thorough and reflect medical expertise. Adhere to the present simple tense for consistency. Answer the question with detailed explanations, listing and highlighting answers where appropriate for enhanced readability. Never add reference or citations to the answer. ",

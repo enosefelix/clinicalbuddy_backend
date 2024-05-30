@@ -301,11 +301,11 @@ def conversation_chain(
     request_origin,
 ):
     try:
-      
 
         retriever_filter = None
         fetched_missing_pdfs = fetch_missing_pdfs_from_firestore(
-            cluster, session_id,
+            cluster,
+            session_id,
         )
 
         is_admin = (
@@ -324,12 +324,14 @@ def conversation_chain(
 
         if filter_kwargs:
             retriever_filter = qdrant_vector_embedding.as_retriever(
-                search_kwargs={"k": 5, **filter_kwargs}
+                search_kwargs={"k": 5, "score_threshold": 0.8, **filter_kwargs},
+                search_type="similarity_score_threshold",
             )
 
         else:
             retriever_filter = qdrant_vector_embedding.as_retriever(
-                search_kwargs={"k": 5}
+                search_kwargs={"k": 5, "score_threshold": 0.8},
+                search_type="similarity_score_threshold",
             )
 
         response = conversation(

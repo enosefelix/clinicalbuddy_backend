@@ -19,8 +19,7 @@ openAIClient = OpenAI()
 cohereChatClient = ChatCohere(model="command-r")
 openAIChatClient = ChatOpenAI(
     temperature=0.0,
-    # model="gpt-3.5-turbo-0125",
-    model="gpt-4o",
+    model="gpt-3.5-turbo-1106",
 )
 
 instructor_client = instructor.from_openai(openAIClient)
