@@ -171,7 +171,7 @@ def grade_docs_with_openai(prompt_rag):
             {"role": "system", "content": " You are a helpful ai assistant"},
             {"role": "user", "content": prompt_rag},
         ],
-        model="gpt-3.5-turbo-0125",
+        model="gpt-3.5-turbo-1106",
         response_format={"type": "json_object"},
         temperature=0,
         seed=123,

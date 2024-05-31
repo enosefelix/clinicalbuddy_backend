@@ -20,7 +20,6 @@ from helpers.conversation_helpers import (
 
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
 
-
 def conversation(
     user_question,
     question_history,
@@ -44,7 +43,7 @@ def conversation(
         """
 
         try:
-            if request_origin != LOCAL_FRONT_END_URL:
+            if request_origin == LOCAL_FRONT_END_URL:
                 return grade_docs_with_cohere(prompt_rag=prompt_rag)
             else:
                 return grade_docs_with_openai(prompt_rag=prompt_rag)
@@ -287,7 +286,6 @@ def conversation(
                     "pdfs_and_pages": [],
                     "status": 404,
                 }
-
 
 def conversation_chain(
     user_question,
