@@ -44,7 +44,7 @@ def conversation(
         """
 
         try:
-            if request_origin == LOCAL_FRONT_END_URL:
+            if request_origin != LOCAL_FRONT_END_URL:
                 return grade_docs_with_cohere(prompt_rag=prompt_rag)
             else:
                 return grade_docs_with_openai(prompt_rag=prompt_rag)
@@ -188,6 +188,8 @@ def conversation(
         retrieved_data = retriever_chain.invoke({"question": user_question})
         reordering = LongContextReorder()
         reranked_data = reordering.transform_documents(retrieved_data)
+
+        # print("rr data>>>",reranked_data)
 
         if reranked_data:
             grade_documents(reranked_data, user_question, request_origin, False)

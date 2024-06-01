@@ -150,9 +150,10 @@ class Routes:
 
                 return jsonify({"transcription": transcription}), 200
 
-        @jwt_required()
+      
         @app.route("/api/conversation_chain", methods=["POST", "OPTIONS"])
         @cross_origin(origins=FRONT_END_URLS)
+        @jwt_required()
         def get_conversation_chain():
             verify_jwt_in_request()
             data = request.get_json()
@@ -163,6 +164,9 @@ class Routes:
             user_name = get_jwt_identity()
             session_id = data.get("session_id")
             request_origin = request.headers.get("Origin")
+
+
+            print("req origin", request_origin)
 
             try:
                 token_expired = self.check_token_expired(user_name, session_id)
