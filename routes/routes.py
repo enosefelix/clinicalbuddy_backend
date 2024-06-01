@@ -152,7 +152,8 @@ class Routes:
 
       
         @app.route("/api/conversation_chain", methods=["POST", "OPTIONS"])
-        @cross_origin(origins=FRONT_END_URLS)
+        # @cross_origin(origins=FRONT_END_URLS)
+        @cross_origin(origins="*")
         @jwt_required()
         def get_conversation_chain():
             verify_jwt_in_request()
