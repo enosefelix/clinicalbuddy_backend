@@ -180,8 +180,6 @@ def conversation(
             | (lambda x: x.split("\n"))
         )
 
-        print("gen answers", generated_answers)
-
         # Using rag fusion to rerank order of retrieved documents
         retriever_chain = (
             generated_answers | retriever_filter.map() | reciprocal_rank_fusion
