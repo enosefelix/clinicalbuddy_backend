@@ -224,7 +224,7 @@ def generate_final_response_with_cohere(
 def open_ai(question: str, context: List[Document]) -> Fact:
     ques = question
 
-    @functools.cache
+    # @functools.cache
     def ai_call(ques):
         response = instructor_client.chat.completions.create(
             model="gpt-4o",

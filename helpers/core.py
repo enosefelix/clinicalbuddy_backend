@@ -169,7 +169,7 @@ def conversation(
         pdfs_and_pages = []
 
         # Using a combination of Multiquery retriever + HyDE document generation
-        template = """You are a helpful assistant, your task is to generate 2  variations of the user's question looking at the question from different perspectives. Then provide concise but accurate answers to  the generated question which demonstrates medical expertise,  \n OUTPUT (2 answers):
+        template = """You are a helpful research assistant, your task is to generate 2  variations of the user's question looking at the question from different perspectives. Then write a scientific paper that provides concise but accurate answers to the generated question which demonstrates medical expertise,  \n OUTPUT (2 answers):
         Question: {question}"""
         prompt_hyde = ChatPromptTemplate.from_template(template)
 
@@ -179,6 +179,8 @@ def conversation(
             | StrOutputParser()
             | (lambda x: x.split("\n"))
         )
+
+        print("gen answers", generated_answers)
 
         # Using rag fusion to rerank order of retrieved documents
         retriever_chain = (
