@@ -44,7 +44,7 @@ def conversation(
         """
 
         try:
-            if request_origin != LOCAL_FRONT_END_URL:
+            if request_origin == LOCAL_FRONT_END_URL:
                 return grade_docs_with_cohere(prompt_rag=prompt_rag)
             else:
                 return grade_docs_with_openai(prompt_rag=prompt_rag)
