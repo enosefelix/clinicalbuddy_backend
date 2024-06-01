@@ -20,6 +20,7 @@ from helpers.conversation_helpers import (
 
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME")
 
+
 def conversation(
     user_question,
     question_history,
@@ -287,6 +288,7 @@ def conversation(
                     "status": 404,
                 }
 
+
 def conversation_chain(
     user_question,
     question_history,
@@ -322,14 +324,21 @@ def conversation_chain(
 
         if filter_kwargs:
             retriever_filter = qdrant_vector_embedding.as_retriever(
-                search_kwargs={"k": 5, "score_threshold": 0.8, **filter_kwargs},
-                search_type="similarity_score_threshold",
+                search_kwargs={
+                    "k": 5,
+                    **filter_kwargs,
+                    #    "score_threshold": 0.8,
+                },
+                # search_type="similarity_score_threshold",
             )
 
         else:
             retriever_filter = qdrant_vector_embedding.as_retriever(
-                search_kwargs={"k": 5, "score_threshold": 0.8},
-                search_type="similarity_score_threshold",
+                search_kwargs={
+                    "k": 5,
+                    #    "score_threshold": 0.8
+                },
+                # search_type="similarity_score_threshold",
             )
 
         response = conversation(
